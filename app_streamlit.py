@@ -9,6 +9,21 @@ from datetime import datetime
 from PIL import Image
 
 # ==========================================
+# 0. UI 숨기기 설정 (메뉴 및 워터마크 제거)
+# ==========================================
+st.set_page_config(page_title="AI 경비 제출 시스템", layout="wide")
+
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    /* 배포 버튼 등 툴바 숨기기 */
+    .stAppDeployButton {display:none;}
+    </style>
+    """, unsafe_allow_html=True)
+
+# ==========================================
 # 1. 설정 (보안을 위해 st.secrets 사용)
 # ==========================================
 try:
@@ -30,11 +45,10 @@ s3_client = boto3.client(
 )
 
 # ==========================================
-# 유틸리티 함수
+# 2. 유틸리티 함수
 # ==========================================
 
 def analyze_receipt(uploaded_file):
-    """GPT-4o mini를 사용하여 영수증 분석"""
     base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
     
@@ -64,7 +78,6 @@ def analyze_receipt(uploaded_file):
         return {"결제 날짜": "에러", "사용처": "분석실패", "합계 금액": 0}
 
 def process_and_save_to_s3(user_name, team_name, day_status, expense_items):
-    """S3에 이미지와 JSON 데이터를 저장"""
     now = datetime.now()
     date_path = now.strftime('%Y/%m')
     timestamp = now.strftime('%Y%m%d_%H%M%S')
@@ -73,7 +86,6 @@ def process_and_save_to_s3(user_name, team_name, day_status, expense_items):
     for idx, item in enumerate(expense_items):
         img_url = "N/A"
         if item.get('image_display'):
-            # 파일명 공백 방지를 위해 strip() 사용
             clean_name = user_name.strip().replace(" ", "_")
             img_filename = f"{clean_name}_{timestamp}_{idx}.png"
             img_key = f"images/{date_path}/{team_name}/{img_filename}"
@@ -85,7 +97,6 @@ def process_and_save_to_s3(user_name, team_name, day_status, expense_items):
                 Bucket=S3_BUCKET, Key=img_key, 
                 Body=img_byte_arr.getvalue(), ContentType='image/png'
             )
-            # 표준 S3 URL 생성
             img_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{img_key}"
 
         summary_list.append({
@@ -102,9 +113,8 @@ def process_and_save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# Streamlit UI
+# 3. Streamlit UI
 # ==========================================
-st.set_page_config(page_title="AI 경비 제출 시스템", layout="wide")
 
 if 'expense_items' not in st.session_state: st.session_state.expense_items = []
 if 'selected_cat' not in st.session_state: st.session_state.selected_cat = "야근식대"
@@ -117,12 +127,13 @@ with st.sidebar:
 
 st.title("📑 AI 경비 제출 시스템")
 
-# 항목 선택 버튼
+# 항목 선택 버튼 (콜백 대신 간단한 로직 유지)
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
 cols = st.columns(5)
 for i, cat in enumerate(categories):
     if cols[i].button(f"📁 {cat}", use_container_width=True, type="primary" if st.session_state.selected_cat == cat else "secondary"):
         st.session_state.selected_cat = cat
+        st.rerun()
 
 st.divider()
 c1, c2 = st.columns([4, 1])
@@ -137,14 +148,15 @@ with c2:
         })
 
 if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작", type="primary"):
-    for f in uploaded_files:
-        res = analyze_receipt(f)
-        img = Image.open(f)
-        img.thumbnail((500, 500))
-        st.session_state.expense_items.append({
-            "종류": st.session_state.selected_cat, "결제 날짜": res.get("결제 날짜"),
-            "사용처": res.get("사용처"), "금액": res.get("합계 금액"), "image_display": img
-        })
+    with st.spinner("AI가 분석 중입니다..."):
+        for f in uploaded_files:
+            res = analyze_receipt(f)
+            img = Image.open(f)
+            img.thumbnail((500, 500))
+            st.session_state.expense_items.append({
+                "종류": st.session_state.selected_cat, "결제 날짜": res.get("결제 날짜"),
+                "사용처": res.get("사용처"), "금액": res.get("합계 금액"), "image_display": img
+            })
     st.rerun()
 
 if st.session_state.expense_items:
@@ -162,10 +174,20 @@ if st.session_state.expense_items:
             st.session_state.expense_items.pop(idx)
             st.rerun()
 
+    # [수정된 제출 로직]
     if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True):
         if not user_name: 
             st.error("성함을 입력해주세요.")
-        elif process_and_save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
-            st.success("S3 저장 완료!")
-            st.session_state.expense_items = []
-            st.balloons()
+        else:
+            with st.spinner("서버로 전송 중..."):
+                success = process_and_save_to_s3(user_name, team_name, day_status, st.session_state.expense_items)
+            
+            if success:
+                st.balloons()
+                st.success(f"🎉 {user_name}님의 내역이 성공적으로 제출되었습니다!")
+                # 상태 초기화
+                st.session_state.expense_items = []
+                # 잠시 대기 후 화면 갱신 (사용자가 성공 메시지를 볼 시간 확보)
+                import time
+                time.sleep(2)
+                st.rerun()
