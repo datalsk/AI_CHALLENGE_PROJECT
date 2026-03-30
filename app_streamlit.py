@@ -67,8 +67,14 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     s3_client = boto3.client('s3', aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"], aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"], region_name=aws_region)
 
     for idx, item in enumerate(expense_items):
+        # [핵심 수정] UI에서 계산된 '실제 반영 금액'을 가져옵니다.
+        final_amt = item.get('_effective_cost', 0)
+        
+        # 한도 초과로 전액 깎여버린(0원) 프로젝트 영수증은 S3 저장에서 깔끔하게 스킵(삭제)
+        if final_amt == 0 and item['종류'] == "프로젝트비용":
+            continue
+
         img_url = "N/A"
-        final_amt = item['인식금액'] + item.get('배달비', 0)
         if item.get('image_display'):
             img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}.png"
             img_byte_arr = io.BytesIO()
@@ -129,11 +135,7 @@ for i, cat in enumerate(categories):
 st.divider()
 
 # 파일 업로더
-uploaded_files = st.file_uploader(
-    "영수증 파일을 올려주세요.", 
-    accept_multiple_files=True, 
-    key=f"receipt_uploader_{st.session_state.uploader_key}"
-)
+uploaded_files = st.file_uploader("영수증 파일을 올려주세요.", accept_multiple_files=True, key=f"receipt_uploader_{st.session_state.uploader_key}")
 
 if uploaded_files:
     current_files = [f.name for f in uploaded_files]
@@ -173,63 +175,75 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
 # ==========================================
 if st.session_state.expense_items:
     
-    # [버그 픽스] 프로젝트비용 영수증 유무 및 기간 설정 상태 확인
-    has_project_cost = any(i['종류'] == "프로젝트비용" for i in st.session_state.expense_items)
-    submit_disabled = False
+    limit = max_project_cost if project_type == "기간 선택" else 0
+    current_proj_total = 0
+    
+    # 1. 렌더링 전 한도 초과 여부 확인
+    limit_exceeded = False
+    for i in st.session_state.expense_items:
+        if i['종류'] == "프로젝트비용":
+            if current_proj_total + i['인식금액'] > limit:
+                limit_exceeded = True
+                break
+            current_proj_total += i['인식금액']
 
-    if has_project_cost and project_type == "해당없음":
-        # 기간이 설정되지 않았다면 절사하지 않고 경고만 표시하며 제출을 막음
-        st.error("🚨 **[오류]** '프로젝트비용' 영수증이 포함되어 있습니다. 좌측 사이드바에서 **프로젝트 기간**을 먼저 설정해주세요!")
-        submit_disabled = True
-        
-    elif not st.session_state.submitted and project_type == "기간 선택" and max_project_cost > 0:
-        # 기간이 설정되어 정상적인 한도가 생겼을 때만 절사 로직 가동
-        limit = max_project_cost
-        current_proj_total = sum(i['인식금액'] + i.get('배달비', 0) for i in st.session_state.expense_items if i['종류'] == "프로젝트비용")
-
-        if current_proj_total > limit:
-            st.warning(f"⚠️ 프로젝트 비용 한도({limit:,}원)를 초과하여 자동으로 초과분이 절사/삭제되었습니다.")
-            total_calc = 0
-            new_items = []
-            for item in st.session_state.expense_items:
-                if item['종류'] == "프로젝트비용":
-                    cost = item['인식금액'] + item.get('배달비', 0)
-                    if total_calc >= limit:
-                        continue 
-                    
-                    if total_calc + cost > limit:
-                        item['인식금액'] = limit - total_calc
-                        item['배달비'] = 0 
-                        total_calc += item['인식금액']
-                        new_items.append(item)
-                    else:
-                        total_calc += cost
-                        new_items.append(item)
-                else:
-                    new_items.append(item)
-            st.session_state.expense_items = new_items
+    if limit_exceeded and not st.session_state.submitted:
+        if limit == 0:
+            st.error("🚨 **[오류]** 프로젝트 기간이 설정되지 않았습니다! (현재 모든 프로젝트 비용 영수증이 제외 처리됨)")
+        else:
+            st.warning(f"⚠️ 한도({limit:,}원) 초과! 넘치는 금액은 자동으로 절사 및 제출에서 제외됩니다.")
 
     st.subheader("📝 내역 확인")
     
     if st.session_state.submitted:
         st.success("✅ 위 내역이 서버로 성공적으로 제출되었습니다!")
 
+    # 2. 리스트 렌더링 및 실시간 절사 계산
+    current_proj_total = 0 # 렌더링용 합계 초기화
+    
     for idx, item in enumerate(st.session_state.expense_items):
-        current_total = item['인식금액'] + item['배달비']
-        is_high_cost_meal = (item['종류'] == "야근식대" and current_total >= 15000)
-        
-        r1 = st.columns([1.2, 1.3, 1.8, 1.2, 0.8, 0.5, 0.5])
+        # [비율 조정] 표시금액 공간을 넓게 확보
+        r1 = st.columns([1.2, 1.3, 1.8, 1.2, 1.6, 0.4, 0.4])
         item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
         item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
         item['사용처'] = r1[2].text_input(f"vn_{idx}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
         item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
-        r1[4].markdown(f"**{current_total:,}**")
+        
+        # 기본 입력비용
+        input_cost = item['인식금액']
+        if item['종류'] == '야근식대':
+            input_cost += item.get('배달비', 0)
+            
+        effective_cost = input_cost
+        status_html = f"<div style='margin-top:8px;'>**{effective_cost:,}**</div>"
+        
+        # [핵심] 프로젝트 비용 실시간 절사 시각화
+        if item['종류'] == "프로젝트비용":
+            if limit == 0:
+                effective_cost = 0
+                status_html = f"<div style='margin-top:2px; line-height:1.2;'><del>{input_cost:,}</del><br/><span style='color:#ff4b4b; font-size:12px; font-weight:bold;'>기간미설정 (제외)</span></div>"
+            elif current_proj_total >= limit:
+                effective_cost = 0
+                status_html = f"<div style='margin-top:2px; line-height:1.2;'><del>{input_cost:,}</del><br/><span style='color:#ff4b4b; font-size:12px; font-weight:bold;'>한도초과 (제외)</span></div>"
+            elif current_proj_total + input_cost > limit:
+                effective_cost = limit - current_proj_total
+                current_proj_total = limit
+                status_html = f"<div style='margin-top:2px; line-height:1.2;'>**{effective_cost:,}**<br/><span style='color:#ff9c2a; font-size:12px; font-weight:bold;'>절사됨 (원래 {input_cost:,})</span></div>"
+            else:
+                effective_cost = input_cost
+                current_proj_total += effective_cost
+                status_html = f"<div style='margin-top:8px;'>**{effective_cost:,}**</div>"
+                
+        item['_effective_cost'] = effective_cost # S3 저장을 위해 숨겨진 키에 실제 반영 금액 저장
+        r1[4].markdown(status_html, unsafe_allow_html=True)
+        
         with r1[5]:
             with st.popover("🖼️"): st.image(item['image_display'], use_container_width=True)
         if r1[6].button("🗑️", key=f"del_{idx}", disabled=st.session_state.submitted):
             st.session_state.expense_items.pop(idx)
             st.rerun()
 
+        is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
         if is_high_cost_meal:
             r2 = st.columns([1.2, 4.3, 1.5])
             item['비고'] = r2[1].text_input(f"note_{idx}", item['비고'], placeholder="함께 식사한 인원 정보를 입력하세요.", label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -237,14 +251,14 @@ if st.session_state.expense_items:
             st.divider()
         else: st.divider()
 
-    # 제출 버튼 논리 연결
+    # 제출 버튼 로직
     if not st.session_state.submitted:
-        if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True, disabled=submit_disabled):
+        if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True):
             if not user_name: st.error("제출자 성함을 입력해주세요.")
             elif project_type == "기간 선택" and max_project_cost == 0:
                 st.error("달력에서 프로젝트 종료일을 마저 선택해주세요.")
             else:
-                with st.spinner("서버로 전송 중..."):
+                with st.spinner("서버로 전송 중... (제외된 항목은 전송되지 않습니다)"):
                     if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
                         st.balloons()
                         st.session_state.submitted = True 
