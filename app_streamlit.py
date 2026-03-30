@@ -17,19 +17,16 @@ st.set_page_config(page_title="경비 정산 시스템", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. 폰트: 현대적인 Pretendard 적용 */
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/variable/pretendardvariable.css");
     html, body, [class*="css"], .stMarkdown, .stText, button, input, select {
         font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif !important;
     }
     
-    /* 2. 불필요한 기본 UI 숨기기 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 3. 모던 카드 UI */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
         box-shadow: rgba(0, 0, 0, 0.04) 0px 4px 12px !important;
@@ -39,7 +36,6 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 4. 주요 버튼 (Primary) */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -54,7 +50,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 5. 일반 버튼 */
     .stButton > button[kind="secondary"] {
         border-radius: 8px;
         font-weight: 500;
@@ -65,11 +60,9 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.1);
     }
     
-    /* 6. 텍스트 */
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 7. 입력 폼 디자인 개선 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: none !important;
@@ -85,7 +78,6 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    /* 8. 라디오 버튼 그룹 여백 최적화 */
     div[role="radiogroup"] { gap: 1rem; }
     </style>
     """, unsafe_allow_html=True)
@@ -148,7 +140,6 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
         img_url = "N/A"
         del_img_url = "N/A"
         
-        # 메인 영수증 저장
         if item.get('image_display'):
             img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}.png"
             img_byte_arr = io.BytesIO()
@@ -156,7 +147,6 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             s3_client.put_object(Bucket=s3_bucket, Key=img_key, Body=img_byte_arr.getvalue(), ContentType='image/png')
             img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{img_key}"
             
-        # 배달비 증빙 영수증 저장 (존재할 경우)
         if item.get('배달비_이미지_display'):
             del_img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}_delivery.png"
             del_img_byte_arr = io.BytesIO()
@@ -237,23 +227,40 @@ if uploaded_files:
 else:
     st.session_state.file_cat_map.clear()
 
-# 분석 버튼
+# ==========================================
+# [수정] 다중 분석 시 진행률 표시 및 딜레이 로직
+# ==========================================
 if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 입력", type="primary", use_container_width=True):
     st.session_state.submitted = False 
-    with st.spinner("데이터를 추출하고 있습니다..."):
-        for f in uploaded_files:
-            assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
-            res = analyze_receipt(f)
-            img = Image.open(f)
-            img.thumbnail((500, 500))
-            st.session_state.expense_items.append({
-                "종류": assigned_cat, "결제일자": str(res.get("결제 날짜")), 
-                "사용처": str(res.get("사용처")), "인식금액": safe_int(res.get("합계 금액")), 
-                "배달비": 0, "비고": "", "image_display": img, "배달비_이미지_display": None, "is_uncertain": res.get("is_uncertain", False)
-            })
+    
+    total_files = len(uploaded_files)
+    # 진행률 표시 바 생성
+    progress_bar = st.progress(0, text="AI가 영수증 데이터를 추출하고 있습니다...")
+    
+    for i, f in enumerate(uploaded_files):
+        assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
+        res = analyze_receipt(f)
+        img = Image.open(f)
+        img.thumbnail((500, 500))
+        st.session_state.expense_items.append({
+            "종류": assigned_cat, "결제일자": str(res.get("결제 날짜")), 
+            "사용처": str(res.get("사용처")), "인식금액": safe_int(res.get("합계 금액")), 
+            "배달비": 0, "비고": "", "image_display": img, "배달비_이미지_display": None, "is_uncertain": res.get("is_uncertain", False)
+        })
+        
+        # API 과부하 방지를 위한 1초 대기 (다중 파일 처리 시 필수)
+        if i < total_files - 1:
+            time.sleep(1)
+            
+        # 진행률 업데이트
+        progress_percentage = int(((i + 1) / total_files) * 100)
+        progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
+        
     st.session_state.expense_items.sort(key=lambda x: (categories.index(x['종류']), x['결제일자']))
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
+    time.sleep(0.5)
+    progress_bar.empty() # 완료 후 프로그레스 바 숨기기
     st.rerun()
 
 # ==========================================
@@ -320,18 +327,15 @@ if st.session_state.expense_items:
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
             with r1[5]:
-                # "영수증 보기" -> "영수증" 텍스트 변경
                 with st.popover("영수증"): st.image(item['image_display'], use_container_width=True)
             if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
-            # [핵심 수정] 15,000원 초과 야근식대 추가 증빙 로직
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.5rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.3);'>", unsafe_allow_html=True)
                 
-                # 세션 상태에 초과 사유 저장 키 할당
                 reason_key = f"reason_{idx}"
                 if reason_key not in st.session_state:
                     st.session_state[reason_key] = "동석자 입력"
@@ -343,7 +347,6 @@ if st.session_state.expense_items:
                     item['배달비'] = 0
                     item['배달비_이미지_display'] = None
                 else:
-                    # 배달비 증빙일 경우, 금액 입력과 영수증 업로드를 동시에 제공
                     c2_1, c2_2 = st.columns([1, 2])
                     item['배달비'] = c2_1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", disabled=st.session_state.submitted)
                     del_file = c2_2.file_uploader("배달비 영수증 첨부 (이미지 파일)", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", disabled=st.session_state.submitted)
