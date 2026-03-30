@@ -95,7 +95,6 @@ with st.sidebar:
     user_name = st.text_input("성함", placeholder="홍길동")
     team_name = st.selectbox("소속 팀", ["영업1팀", "영업2팀", "개발팀", "인사팀", "마케팅팀", "기타"])
     
-    # [신규 추가] 캘린더를 활용한 프로젝트 기간 및 한도 계산 로직
     st.divider()
     project_type = st.radio("프로젝트 수행 여부", ["해당없음", "기간 선택"], horizontal=True)
     
@@ -103,20 +102,23 @@ with st.sidebar:
     day_status = "해당없음"
 
     if project_type == "기간 선택":
-        dates = st.date_input("프로젝트 기간", value=(), help="시작일과 종료일을 순서대로 클릭하세요.")
+        # [수정] "Choose a date range"가 안 뜨도록 기본값(이번 달 1일 ~ 오늘) 세팅
+        today = datetime.today()
+        first_day = today.replace(day=1)
+        
+        dates = st.date_input("프로젝트 기간", value=(first_day, today))
+        
         if len(dates) == 2:
             start_date, end_date = dates
             working_days = (end_date - start_date).days + 1
-            # 시작일 기준 해당 월의 전체 일수 계산
             total_month_days = calendar.monthrange(start_date.year, start_date.month)[1]
             
-            # 한도 계산: 200,000 * (근무일수 / 전체일수)
             max_project_cost = int(200000 * (working_days / total_month_days))
             day_status = f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}"
             
             st.success(f"💡 이번 달 프로젝트 한도: **{max_project_cost:,}원**\n(근무 {working_days}일 / 해당월 {total_month_days}일)")
         else:
-            st.warning("달력에서 시작일과 종료일을 모두 선택해주세요.")
+            st.warning("달력에서 종료일을 한 번 더 클릭해주세요.")
 
 # 카테고리 버튼
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
@@ -157,7 +159,7 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
 # ==========================================
 if st.session_state.expense_items:
     
-    # [신규 추가] 프로젝트 비용 자동 절사 및 삭제 로직
+    # 프로젝트 비용 자동 절사
     if not st.session_state.submitted:
         limit = max_project_cost if project_type == "기간 선택" else 0
         current_proj_total = sum(i['인식금액'] + i.get('배달비', 0) for i in st.session_state.expense_items if i['종류'] == "프로젝트비용")
@@ -171,19 +173,18 @@ if st.session_state.expense_items:
                 if item['종류'] == "프로젝트비용":
                     cost = item['인식금액'] + item.get('배달비', 0)
                     if total_calc >= limit:
-                        continue # 이미 한도를 채웠으므로 이후 영수증은 삭제(Skip)
+                        continue 
                     
                     if total_calc + cost > limit:
-                        # 한도를 넘치게 하는 마지막 영수증은 남은 한도만큼만 절사
                         item['인식금액'] = limit - total_calc
-                        item['배달비'] = 0 # 배달비 초기화
+                        item['배달비'] = 0 
                         total_calc += item['인식금액']
                         new_items.append(item)
                     else:
                         total_calc += cost
                         new_items.append(item)
                 else:
-                    new_items.append(item) # 다른 카테고리는 그대로 유지
+                    new_items.append(item)
             
             st.session_state.expense_items = new_items
 
@@ -218,7 +219,6 @@ if st.session_state.expense_items:
     if not st.session_state.submitted:
         if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True):
             if not user_name: st.error("제출자 성함을 입력해주세요.")
-            # 프로젝트 기간을 선택해놓고 날짜를 다 안채웠을 때 막는 로직
             elif project_type == "기간 선택" and max_project_cost == 0:
                 st.error("달력에서 프로젝트 종료일을 마저 선택해주세요.")
             else:
