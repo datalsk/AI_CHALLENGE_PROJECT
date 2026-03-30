@@ -135,23 +135,18 @@ uploaded_files = st.file_uploader(
     key=f"receipt_uploader_{st.session_state.uploader_key}"
 )
 
-# [버그 픽스] X 버튼으로 삭제된 파일을 감지하고 맵에서 동기화하여 삭제하는 로직
 if uploaded_files:
     current_files = [f.name for f in uploaded_files]
-    
-    # 1. 화면에 없는 파일은 기억 장치(딕셔너리)에서도 삭제
     keys_to_remove = [k for k in st.session_state.file_cat_map.keys() if k not in current_files]
     for k in keys_to_remove:
         st.session_state.file_cat_map.pop(k)
         
-    # 2. 새로 추가된 파일만 현재 카테고리로 맵핑
     for f in uploaded_files:
         if f.name not in st.session_state.file_cat_map:
             st.session_state.file_cat_map[f.name] = st.session_state.selected_cat
             
     st.caption("📍 분류 현황: " + " | ".join([f"📄 {f.name} → **[{st.session_state.file_cat_map[f.name]}]**" for f in uploaded_files]))
 else:
-    # 파일이 전부 지워졌다면 기억 장치도 완전히 초기화
     st.session_state.file_cat_map.clear()
 
 # 분석 버튼
@@ -178,14 +173,22 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
 # ==========================================
 if st.session_state.expense_items:
     
-    # 프로젝트 비용 자동 절사
-    if not st.session_state.submitted:
-        limit = max_project_cost if project_type == "기간 선택" else 0
+    # [버그 픽스] 프로젝트비용 영수증 유무 및 기간 설정 상태 확인
+    has_project_cost = any(i['종류'] == "프로젝트비용" for i in st.session_state.expense_items)
+    submit_disabled = False
+
+    if has_project_cost and project_type == "해당없음":
+        # 기간이 설정되지 않았다면 절사하지 않고 경고만 표시하며 제출을 막음
+        st.error("🚨 **[오류]** '프로젝트비용' 영수증이 포함되어 있습니다. 좌측 사이드바에서 **프로젝트 기간**을 먼저 설정해주세요!")
+        submit_disabled = True
+        
+    elif not st.session_state.submitted and project_type == "기간 선택" and max_project_cost > 0:
+        # 기간이 설정되어 정상적인 한도가 생겼을 때만 절사 로직 가동
+        limit = max_project_cost
         current_proj_total = sum(i['인식금액'] + i.get('배달비', 0) for i in st.session_state.expense_items if i['종류'] == "프로젝트비용")
 
         if current_proj_total > limit:
             st.warning(f"⚠️ 프로젝트 비용 한도({limit:,}원)를 초과하여 자동으로 초과분이 절사/삭제되었습니다.")
-            
             total_calc = 0
             new_items = []
             for item in st.session_state.expense_items:
@@ -204,7 +207,6 @@ if st.session_state.expense_items:
                         new_items.append(item)
                 else:
                     new_items.append(item)
-            
             st.session_state.expense_items = new_items
 
     st.subheader("📝 내역 확인")
@@ -235,8 +237,9 @@ if st.session_state.expense_items:
             st.divider()
         else: st.divider()
 
+    # 제출 버튼 논리 연결
     if not st.session_state.submitted:
-        if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True):
+        if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True, disabled=submit_disabled):
             if not user_name: st.error("제출자 성함을 입력해주세요.")
             elif project_type == "기간 선택" and max_project_cost == 0:
                 st.error("달력에서 프로젝트 종료일을 마저 선택해주세요.")
