@@ -23,13 +23,13 @@ st.markdown("""
         font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif !important;
     }
     
-    /* 2. 불필요한 기본 UI 숨기기 (사이드바 버튼 복구) */
+    /* 2. 불필요한 기본 UI 숨기기 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 3. 모던 카드 UI (은은한 그림자와 둥근 모서리) */
+    /* 3. 모던 카드 UI */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
         box-shadow: rgba(0, 0, 0, 0.04) 0px 4px 12px !important;
@@ -39,7 +39,7 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 4. 주요 버튼 (Primary) 세련된 딥블루/블랙 톤으로 변경 */
+    /* 4. 주요 버튼 (Primary) */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -54,7 +54,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 5. 일반 카테고리 버튼 깔끔하게 */
+    /* 5. 일반 버튼 */
     .stButton > button[kind="secondary"] {
         border-radius: 8px;
         font-weight: 500;
@@ -65,32 +65,28 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.1);
     }
     
-    /* 6. 타이틀 및 헤더 정렬 */
+    /* 6. 텍스트 */
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* =========================================================
-       7. [수정됨] 입력 폼 디자인 개선 (흰선, 빨간선 완벽 제거)
-       ========================================================= */
-    /* 기본 상태: 거슬리는 흰 선 제거, 아주 연한 테두리와 반투명 배경 적용 */
+    /* 7. 입력 폼 디자인 개선 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: none !important;
-        background-color: rgba(148, 163, 184, 0.08) !important; /* 다크/라이트 모두 어울리는 반투명 배경 */
-        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2) !important; /* 아주 은은한 테두리만 */
+        background-color: rgba(148, 163, 184, 0.08) !important;
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2) !important;
         transition: all 0.2s ease;
     }
-
-    /* 클릭(포커스) 상태: 빨간색 대신 세련된 브랜드 컬러(인디고) 테두리로 부드럽게 변경 */
     div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within {
-        box-shadow: inset 0 0 0 2px #4f46e5 !important; /* 두께 2px의 세련된 인디고 색상 */
+        box-shadow: inset 0 0 0 2px #4f46e5 !important;
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
-    
-    /* 입력창 내부 텍스트 박스 배경 투명화 (이중 배경 방지) */
     div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
         background-color: transparent !important;
     }
+    
+    /* 8. 라디오 버튼 그룹 여백 최적화 */
+    div[role="radiogroup"] { gap: 1rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -150,6 +146,9 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             continue
 
         img_url = "N/A"
+        del_img_url = "N/A"
+        
+        # 메인 영수증 저장
         if item.get('image_display'):
             img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}.png"
             img_byte_arr = io.BytesIO()
@@ -157,11 +156,20 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             s3_client.put_object(Bucket=s3_bucket, Key=img_key, Body=img_byte_arr.getvalue(), ContentType='image/png')
             img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{img_key}"
             
+        # 배달비 증빙 영수증 저장 (존재할 경우)
+        if item.get('배달비_이미지_display'):
+            del_img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}_delivery.png"
+            del_img_byte_arr = io.BytesIO()
+            item['배달비_이미지_display'].save(del_img_byte_arr, format='PNG')
+            s3_client.put_object(Bucket=s3_bucket, Key=del_img_key, Body=del_img_byte_arr.getvalue(), ContentType='image/png')
+            del_img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{del_img_key}"
+            
         summary_list.append({
             "이름": user_name, "팀명": team_name, "항목": item['종류'], 
             "금액": final_amt, "결제일자": item['결제일자'], 
             "사용처": item['사용처'], "수행일자": day_status, 
-            "비고": item.get('비고', ""), "증빙URL": img_url
+            "비고": item.get('비고', ""), "증빙URL": img_url,
+            "배달비_증빙URL": del_img_url if del_img_url != "N/A" else ""
         })
         
     s3_client.put_object(Bucket=s3_bucket, Key=f"data/{date_path}/{team_name}/{user_name}_{timestamp}.json", Body=json.dumps(summary_list, ensure_ascii=False).encode('utf-8'))
@@ -241,7 +249,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             st.session_state.expense_items.append({
                 "종류": assigned_cat, "결제일자": str(res.get("결제 날짜")), 
                 "사용처": str(res.get("사용처")), "인식금액": safe_int(res.get("합계 금액")), 
-                "배달비": 0, "비고": "", "image_display": img, "is_uncertain": res.get("is_uncertain", False)
+                "배달비": 0, "비고": "", "image_display": img, "배달비_이미지_display": None, "is_uncertain": res.get("is_uncertain", False)
             })
     st.session_state.expense_items.sort(key=lambda x: (categories.index(x['종류']), x['결제일자']))
     st.session_state.file_cat_map = {} 
@@ -312,17 +320,36 @@ if st.session_state.expense_items:
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
             with r1[5]:
-                with st.popover("영수증 보기"): st.image(item['image_display'], use_container_width=True)
+                # "영수증 보기" -> "영수증" 텍스트 변경
+                with st.popover("영수증"): st.image(item['image_display'], use_container_width=True)
             if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
+            # [핵심 수정] 15,000원 초과 야근식대 추가 증빙 로직
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.5rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.3);'>", unsafe_allow_html=True)
-                r2 = st.columns([1.2, 4.3, 1.5])
-                item['비고'] = r2[1].text_input(f"note_{idx}", item['비고'], placeholder="함께 식사한 인원 등 비고 사항을 입력하세요", label_visibility="collapsed", disabled=st.session_state.submitted)
-                item['배달비'] = r2[2].number_input(f"del_fee_{idx}", value=item['배달비'], step=500, label_visibility="collapsed", disabled=st.session_state.submitted)
+                
+                # 세션 상태에 초과 사유 저장 키 할당
+                reason_key = f"reason_{idx}"
+                if reason_key not in st.session_state:
+                    st.session_state[reason_key] = "동석자 입력"
+                
+                reason = st.radio("초과 사유 증빙 방식을 선택하세요", ["동석자 입력", "배달비 증빙"], horizontal=True, key=reason_key, disabled=st.session_state.submitted)
+                
+                if reason == "동석자 입력":
+                    item['비고'] = st.text_input("동석자 정보", value=item.get('비고', ''), placeholder="함께 식사한 인원 정보를 입력하세요 (예: 홍길동, 김철수)", key=f"note_{idx}", disabled=st.session_state.submitted)
+                    item['배달비'] = 0
+                    item['배달비_이미지_display'] = None
+                else:
+                    # 배달비 증빙일 경우, 금액 입력과 영수증 업로드를 동시에 제공
+                    c2_1, c2_2 = st.columns([1, 2])
+                    item['배달비'] = c2_1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", disabled=st.session_state.submitted)
+                    del_file = c2_2.file_uploader("배달비 영수증 첨부 (이미지 파일)", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", disabled=st.session_state.submitted)
+                    if del_file:
+                        item['배달비_이미지_display'] = Image.open(del_file)
+                    item['비고'] = "배달비 증빙"
 
     st.write("")
     if not st.session_state.submitted:
