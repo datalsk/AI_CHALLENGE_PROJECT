@@ -27,12 +27,13 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
+    /* 메인 카드 디자인 (패딩 약간 넓힘) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
-        box-shadow: rgba(0, 0, 0, 0.04) 0px 4px 12px !important;
-        border: 1px solid rgba(226, 232, 240, 0.1) !important;
-        background-color: rgba(255, 255, 255, 0.03) !important;
-        padding: 4px;
+        box-shadow: rgba(0, 0, 0, 0.03) 0px 4px 10px !important;
+        border: 1px solid rgba(226, 232, 240, 0.8) !important;
+        background-color: #ffffff !important;
+        padding: 8px 4px;
         transition: all 0.2s ease;
     }
     
@@ -63,6 +64,7 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
+    /* 입력 폼 디자인 (포커스 링 개선) */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: none !important;
@@ -78,7 +80,14 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    div[role="radiogroup"] { gap: 1rem; }
+    /* 파일 업로더 박스 크기 및 라운딩 최적화 */
+    [data-testid="stFileUploadDropzone"] {
+        border-radius: 8px !important;
+        padding: 1rem !important;
+        min-height: 80px !important;
+    }
+    
+    div[role="radiogroup"] { gap: 0.5rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -330,6 +339,7 @@ if st.session_state.expense_items:
     
     for idx, item in enumerate(st.session_state.expense_items):
         with st.container(border=True):
+            # 메인 영수증 영역
             r1 = st.columns([1.2, 1.3, 1.8, 1.2, 1.6, 0.6, 0.5])
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -364,48 +374,58 @@ if st.session_state.expense_items:
             
             with r1[5]:
                 with st.popover("영수증"): 
-                    # 메인 영수증 크기 제한 추가
                     st.image(item['image_display'], width=400)
             if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
+            # [핵심 변경] 추가 증빙 영역 레이아웃 최적화
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
             if is_high_cost_meal:
-                st.markdown("<hr style='margin: 0.5rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.3);'>", unsafe_allow_html=True)
+                # 구분선을 옅게 처리하고 패딩을 주어 하위 메뉴임을 강조
+                st.markdown("<hr style='margin: 0.8rem 0 0.5rem 0; border-top: 1px solid rgba(79, 70, 229, 0.1);'>", unsafe_allow_html=True)
                 
                 reason_key = f"reason_{idx}"
                 if reason_key not in st.session_state:
                     st.session_state[reason_key] = "동석자 입력"
                 
-                reason = st.radio("초과 사유 증빙 방식을 선택하세요", ["동석자 입력", "배달비 증빙"], horizontal=True, key=reason_key, disabled=st.session_state.submitted)
+                # 2단 구조: 좌측에 라디오 버튼, 우측에 입력 폼 배치
+                c_sub1, c_sub2 = st.columns([1.5, 5.5])
                 
-                if reason == "동석자 입력":
-                    item['비고'] = st.text_input("동석자 정보", value=item.get('비고', ''), placeholder="함께 식사한 인원 정보를 입력하세요 (예: 홍길동, 김철수)", key=f"note_{idx}", disabled=st.session_state.submitted)
-                    item['배달비'] = 0
-                    item['배달비_이미지_display'] = None
-                else:
-                    c2_1, c2_2, c2_3 = st.columns([1.5, 3, 1.2])
-                    
-                    item['배달비'] = c2_1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", disabled=st.session_state.submitted)
-                    
-                    del_file = c2_2.file_uploader("배달비 영수증 첨부 (이미지 파일)", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", disabled=st.session_state.submitted)
-                    
-                    if del_file:
-                        # [핵심 수정] 업로드 시 원본 이미지를 500x500 픽셀 비율에 맞춰 썸네일로 압축/리사이징 합니다.
-                        del_img = Image.open(del_file)
-                        del_img.thumbnail((500, 500))
-                        item['배달비_이미지_display'] = del_img
+                with c_sub1:
+                    st.markdown("<div style='font-size:12px; font-weight:600; color:#4f46e5; margin-bottom:4px;'>15,000원 초과 증빙</div>", unsafe_allow_html=True)
+                    reason = st.radio("증빙방식", ["동석자 입력", "배달비 증빙"], key=reason_key, label_visibility="collapsed", disabled=st.session_state.submitted)
+                
+                with c_sub2:
+                    if reason == "동석자 입력":
+                        st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True) # 줄맞춤용 여백
+                        item['비고'] = st.text_input("동석자 정보", value=item.get('비고', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        item['배달비'] = 0
+                        item['배달비_이미지_display'] = None
+                    else:
+                        # 배달비 전용 세부 3단 컬럼
+                        d1, d2, d3 = st.columns([1.2, 2.5, 0.8])
                         
-                    with c2_3:
-                        st.write("") 
-                        st.write("")
-                        if item.get('배달비_이미지_display'):
-                            with st.popover("미리보기"):
-                                # 팝업 안에서도 가로 크기를 안전하게 한 번 더 제한합니다.
-                                st.image(item['배달비_이미지_display'], width=400)
-                                
-                    item['비고'] = "배달비 증빙"
+                        # 1. 배달비 금액
+                        d1.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 금액</div>", unsafe_allow_html=True)
+                        item['배달비'] = d1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        
+                        # 2. 영수증 업로더
+                        d2.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 영수증 첨부</div>", unsafe_allow_html=True)
+                        del_file = d2.file_uploader("배달비 영수증", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        if del_file:
+                            del_img = Image.open(del_file)
+                            del_img.thumbnail((500, 500))
+                            item['배달비_이미지_display'] = del_img
+                            
+                        # 3. 미리보기 팝업 (버튼 위치 하단 정렬)
+                        with d3:
+                            st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+                            if item.get('배달비_이미지_display'):
+                                with st.popover("미리보기"):
+                                    st.image(item['배달비_이미지_display'], width=400)
+                        
+                        item['비고'] = "배달비 증빙"
 
     st.write("")
     if not st.session_state.submitted:
