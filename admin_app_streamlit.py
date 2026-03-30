@@ -22,12 +22,12 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 모던 카드 UI */
+    /* 모던 카드 UI (다크/라이트 모드 대응 투명도 사용) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
-        box-shadow: rgba(0, 0, 0, 0.03) 0px 4px 10px !important;
-        border: 1px solid rgba(226, 232, 240, 0.8) !important;
-        background-color: #ffffff !important;
+        box-shadow: rgba(0, 0, 0, 0.05) 0px 4px 10px !important;
+        border: 1px solid rgba(148, 163, 184, 0.2) !important;
+        background-color: rgba(255, 255, 255, 0.02) !important;
         padding: 8px;
         transition: all 0.2s ease;
     }
@@ -46,19 +46,22 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 일반 버튼 (영수증 보기 등) */
-    .stButton > button[kind="secondary"] {
-        border-radius: 6px;
-        font-weight: 500;
+    /* 일반 버튼 및 팝오버 버튼 (세로 꺾임 완벽 방지) */
+    .stButton > button, div[data-testid="stPopover"] > button {
+        border-radius: 6px !important;
+        font-weight: 500 !important;
         font-size: 13px !important;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background-color: transparent;
-        padding: 2px 10px;
+        border: 1px solid rgba(148, 163, 184, 0.3) !important;
+        background-color: transparent !important;
+        white-space: nowrap !important; /* 글자 세로 꺾임 방지 */
+        min-width: max-content !important;
+        padding: 4px 12px !important;
     }
-    .stButton > button[kind="secondary"]:hover {
-        background-color: rgba(148, 163, 184, 0.1);
+    .stButton > button:hover, div[data-testid="stPopover"] > button:hover {
+        background-color: rgba(148, 163, 184, 0.1) !important;
     }
     
+    /* 타이틀 폰트 굵기 */
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
@@ -66,9 +69,6 @@ st.markdown("""
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
     }
-    
-    /* 데이터프레임 헤더 스타일링 */
-    th { background-color: #f8fafc !important; color: #475569 !important; font-weight: 600 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -93,7 +93,7 @@ s3_client = boto3.client(
     region_name=AWS_REGION
 )
 
-@st.cache_data(ttl=60) # 성능 향상을 위해 60초 캐싱
+@st.cache_data(ttl=60)
 def get_all_s3_data(year_month_path):
     all_data = []
     prefix = f"data/{year_month_path}/"
@@ -107,7 +107,6 @@ def get_all_s3_data(year_month_path):
                         all_data.extend(json.loads(content))
         
         df = pd.DataFrame(all_data)
-        # 구버전 데이터 호환성을 위해 누락된 컬럼 안전하게 추가
         if not df.empty:
             if '비고' not in df.columns: df['비고'] = ""
             if '배달비_증빙URL' not in df.columns: df['배달비_증빙URL'] = ""
@@ -116,7 +115,6 @@ def get_all_s3_data(year_month_path):
         st.sidebar.error(f"S3 데이터 로드 오류: {e}")
         return pd.DataFrame()
 
-# Pre-signed URL 생성 헬퍼 함수
 def get_presigned_url(full_url):
     if not full_url or str(full_url).strip() in ["", "N/A", "nan"]: 
         return None
@@ -137,7 +135,7 @@ def get_presigned_url(full_url):
 # 2. 메인 화면 구성
 # ==========================================
 st.title("경비 정산 관리자 대시보드")
-st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>임직원이 제출한 경비 내역과 증빙 자료를 검토하고 집계합니다.</p>", unsafe_allow_html=True)
+st.markdown("<p style='opacity: 0.7; font-size: 15px; margin-bottom: 2rem;'>임직원이 제출한 경비 내역과 증빙 자료를 검토하고 집계합니다.</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>조회 설정</h3>", unsafe_allow_html=True)
@@ -166,7 +164,6 @@ if not raw_df.empty:
         total_row.index = pd.MultiIndex.from_tuples([('전체', '합계')])
         pivot = pd.concat([pivot, total_row])
         
-        # 데이터프레임 출력
         st.dataframe(pivot.style.format("{:,.0f}원"), use_container_width=True)
 
     st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
@@ -178,46 +175,42 @@ if not raw_df.empty:
     sel_user = c1.selectbox("조회 대상자 선택", sorted(display_df['이름'].dropna().unique()), label_visibility="collapsed")
     user_detail = display_df[display_df['이름'] == sel_user]
     
-    # 수행일자(프로젝트 기간 등) 정보 표시
     user_proj_dates = user_detail['수행일자'].unique()
     proj_info = user_proj_dates[0] if len(user_proj_dates) > 0 else "정보 없음"
-    c2.markdown(f"<div style='padding-top:8px; color:#64748b; font-size:14px;'>📌 <b>프로젝트/수행 기간:</b> {proj_info}</div>", unsafe_allow_html=True)
+    c2.markdown(f"<div style='padding-top:8px; opacity:0.8; font-size:14px;'>📌 <b>프로젝트/수행 기간:</b> {proj_info}</div>", unsafe_allow_html=True)
     
     st.write("")
     
-    # 컬럼 헤더
-    h = st.columns([1, 1.2, 1.8, 2.5, 1, 1])
+    # [수정] 레이아웃 컬럼 비율 재조정 (증빙 자료 컬럼 확장)
+    h = st.columns([1.2, 1.2, 2.0, 2.5, 1.2, 1.2])
     headers = ["항목", "결제일자", "사용처", "비고 (동석자/기타)", "금액", "증빙 자료"]
     for i, name in enumerate(headers):
-        h[i].markdown(f"<div style='font-size:13px; font-weight:600; color:#475569; padding-bottom:8px; border-bottom:2px solid #e2e8f0; margin-bottom:8px;'>{name}</div>", unsafe_allow_html=True)
+        # [수정] 다크/라이트 모드 범용성을 위해 고정된 글자색 제거
+        h[i].markdown(f"<div style='font-size:13px; font-weight:600; opacity:0.7; padding-bottom:8px; border-bottom:2px solid rgba(148, 163, 184, 0.3); margin-bottom:8px;'>{name}</div>", unsafe_allow_html=True)
 
-    # 상세 데이터 행 (카드 스타일 적용)
     for idx, row in user_detail.iterrows():
         with st.container(border=True):
-            r = st.columns([1, 1.2, 1.8, 2.5, 1, 1])
+            # 헤더와 동일한 컬럼 비율 적용
+            r = st.columns([1.2, 1.2, 2.0, 2.5, 1.2, 1.2])
             
-            # 1~5 텍스트 데이터
+            # [수정] 고정색(color:#0f172a 등) 제거 및 opacity 활용으로 다크모드 가독성 완벽 해결
             r[0].markdown(f"<div style='font-size:14px; font-weight:500; margin-top:6px;'>{row.get('항목', '-')}</div>", unsafe_allow_html=True)
-            r[1].markdown(f"<div style='font-size:14px; color:#475569; margin-top:6px;'>{row.get('결제일자', '-')}</div>", unsafe_allow_html=True)
+            r[1].markdown(f"<div style='font-size:14px; opacity:0.8; margin-top:6px;'>{row.get('결제일자', '-')}</div>", unsafe_allow_html=True)
             r[2].markdown(f"<div style='font-size:14px; margin-top:6px;'>{row.get('사용처', '-')}</div>", unsafe_allow_html=True)
             
             note_text = row.get('비고', '')
-            r[3].markdown(f"<div style='font-size:13px; color:#64748b; margin-top:6px;'>{note_text if note_text else '-'}</div>", unsafe_allow_html=True)
+            r[3].markdown(f"<div style='font-size:13px; opacity:0.6; margin-top:6px;'>{note_text if note_text else '-'}</div>", unsafe_allow_html=True)
             
-            r[4].markdown(f"<div style='font-size:15px; font-weight:600; color:#0f172a; margin-top:6px;'>{row.get('금액', 0):,} 원</div>", unsafe_allow_html=True)
+            r[4].markdown(f"<div style='font-size:15px; font-weight:600; margin-top:6px;'>{row.get('금액', 0):,} 원</div>", unsafe_allow_html=True)
             
-            # 6. 증빙 자료 버튼 (메인 + 배달)
             with r[5]:
                 btn_cols = st.columns(2)
-                
-                # 메인 영수증
                 main_url = get_presigned_url(row.get('증빙URL'))
                 if main_url:
                     with btn_cols[0]:
                         with st.popover("영수증"):
                             st.image(main_url, width=400)
                             
-                # 배달비 영수증
                 del_url = get_presigned_url(row.get('배달비_증빙URL'))
                 if del_url:
                     with btn_cols[1]:
