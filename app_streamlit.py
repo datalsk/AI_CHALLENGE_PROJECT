@@ -13,7 +13,7 @@ from PIL import Image
 # ==========================================
 # 0. UI 설정 및 모던 SaaS 디자인 CSS 적용
 # ==========================================
-st.set_page_config(page_title="경비 정산 시스템", layout="wide")
+st.set_page_config(page_title="경비 정산", layout="wide")
 
 st.markdown("""
     <style>
@@ -211,8 +211,8 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
 # ==========================================
 # 2. 메인 UI 및 사이드바 로직
 # ==========================================
-st.title("경비 정산 시스템")
-st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증을 업로드하면 시스템이 자동으로 정보를 분류하고 입력합니다.</p>", unsafe_allow_html=True)
+st.title("경비 정산")
+st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증을 업로드하면 AI가 이미지 속 텍스트를 알아서 인식하고 분류해 줍니다.</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>제출자 정보</h3>", unsafe_allow_html=True)
@@ -394,9 +394,7 @@ if st.session_state.expense_items:
                         item['배달비'] = 0
                         item['배달비_이미지_display'] = None
                     else:
-                        item['배달비'] = 0 # 배달비 수기 입력란 제거 (기본값 0 유지)
-                        
-                        # [수정] 업로더와 팝업 버튼만 널찍하게 2단으로 배치
+                        item['배달비'] = 0 
                         d1, d2 = st.columns([4.5, 1])
                         
                         d1.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 영수증 첨부</div>", unsafe_allow_html=True)
