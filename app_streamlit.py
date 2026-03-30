@@ -103,10 +103,6 @@ def safe_int(value):
     except: return 0
 
 def analyze_receipt(uploaded_file, retries=1):
-    """
-    [핵심 업데이트] AI의 창의성을 끄고(temperature: 0.0), 
-    None을 뱉으면 자동으로 재시도(Retry)하는 강력한 함수입니다.
-    """
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -126,7 +122,7 @@ def analyze_receipt(uploaded_file, retries=1):
     
     payload = {
         "model": "gpt-4o-mini", 
-        "temperature": 0.0, # AI의 변덕/창의성 완벽 차단 (항상 일관된 포맷 유지)
+        "temperature": 0.0, 
         "messages": [
             {"role": "system", "content": "너는 영수증 데이터를 기계처럼 정확하게 추출하는 시스템이야."},
             {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}
@@ -134,22 +130,18 @@ def analyze_receipt(uploaded_file, retries=1):
         "response_format": { "type": "json_object" }
     }
     
-    # AI가 엉뚱한 대답을 하면 최대 1번 더 멱살잡고 재요청(Retry)
     for attempt in range(retries + 1):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
             
-            # 응답값 검증
             date_str = str(res_data.get("결제 날짜", "")).strip().lower()
             shop_str = str(res_data.get("사용처", "")).strip().lower()
             
-            # AI가 또 None을 뱉었다면? -> 남은 기회가 있다면 다시 시도
             if (date_str in ["none", "null", ""] or shop_str in ["none", "null", ""]) and attempt < retries:
                 time.sleep(1)
                 continue
             
-            # 최종 클리닝 (그래도 이상하면 안전한 기본값으로 덮어씌움)
             if date_str in ["none", "null", "", "미확인"]: res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
             else: res_data["결제 날짜"] = str(res_data.get("결제 날짜"))
             
@@ -165,7 +157,6 @@ def analyze_receipt(uploaded_file, retries=1):
                 continue
             break
             
-    # 모든 재시도 실패 시 최후의 보루
     return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
 
 def save_to_s3(user_name, team_name, day_status, expense_items):
@@ -248,7 +239,6 @@ with st.sidebar:
 
 st.write("") 
 
-# 카테고 버튼
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
 cols = st.columns(5)
 for i, cat in enumerate(categories):
@@ -256,7 +246,6 @@ for i, cat in enumerate(categories):
 
 st.write("") 
 
-# 파일 업로더
 uploaded_files = st.file_uploader("증빙 자료(영수증) 업로드", accept_multiple_files=True, key=f"receipt_uploader_{st.session_state.uploader_key}")
 
 if uploaded_files:
@@ -281,7 +270,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
     
     for i, f in enumerate(uploaded_files):
         assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
-        res = analyze_receipt(f) # 업그레이드된 로직 호출
+        res = analyze_receipt(f) 
         img = Image.open(f)
         img.thumbnail((500, 500))
         
@@ -298,7 +287,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         })
         
         if i < total_files - 1:
-            time.sleep(1) # API 과부하 방지 1초 대기
+            time.sleep(1) 
             
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
@@ -394,11 +383,23 @@ if st.session_state.expense_items:
                     item['배달비'] = 0
                     item['배달비_이미지_display'] = None
                 else:
-                    c2_1, c2_2 = st.columns([1, 2])
+                    # [수정] 배달비 입력, 파일 업로드, 그리고 팝업 미리보기 레이아웃 최적화
+                    c2_1, c2_2, c2_3 = st.columns([1.5, 3, 1.2])
+                    
                     item['배달비'] = c2_1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", disabled=st.session_state.submitted)
+                    
                     del_file = c2_2.file_uploader("배달비 영수증 첨부 (이미지 파일)", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", disabled=st.session_state.submitted)
+                    
                     if del_file:
                         item['배달비_이미지_display'] = Image.open(del_file)
+                        
+                    with c2_3:
+                        st.write("") # 버튼 위치를 업로더 박스 중앙과 맞추기 위한 여백
+                        st.write("")
+                        if item.get('배달비_이미지_display'):
+                            with st.popover("미리보기"):
+                                st.image(item['배달비_이미지_display'], use_container_width=True)
+                                
                     item['비고'] = "배달비 증빙"
 
     st.write("")
