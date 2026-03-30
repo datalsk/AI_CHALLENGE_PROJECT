@@ -27,22 +27,21 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stAppDeployButton {display:none;}
-    /* header 전체를 숨기면 사이드바 열기 버튼이 날아가므로 배경만 투명하게 처리 */
     header {background-color: transparent !important;}
 
     /* 3. 모던 카드 UI (은은한 그림자와 둥근 모서리) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
         box-shadow: rgba(0, 0, 0, 0.04) 0px 4px 12px !important;
-        border: 1px solid rgba(226, 232, 240, 0.8) !important;
-        background-color: #ffffff !important;
+        border: 1px solid rgba(226, 232, 240, 0.1) !important;
+        background-color: rgba(255, 255, 255, 0.03) !important;
         padding: 4px;
         transition: all 0.2s ease;
     }
     
     /* 4. 주요 버튼 (Primary) 세련된 딥블루/블랙 톤으로 변경 */
     .stButton > button[kind="primary"] {
-        background-color: #1e293b;
+        background-color: #4f46e5;
         color: white;
         border: none;
         border-radius: 8px;
@@ -51,31 +50,46 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #0f172a;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        background-color: #3730a3;
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
     /* 5. 일반 카테고리 버튼 깔끔하게 */
     .stButton > button[kind="secondary"] {
         border-radius: 8px;
         font-weight: 500;
-        border: 1px solid #cbd5e1;
-        background-color: #f8fafc;
-        color: #334155;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background-color: transparent;
     }
     .stButton > button[kind="secondary"]:hover {
-        border-color: #94a3b8;
-        background-color: #f1f5f9;
+        background-color: rgba(148, 163, 184, 0.1);
     }
     
     /* 6. 타이틀 및 헤더 정렬 */
-    h1 { font-weight: 700 !important; color: #0f172a; letter-spacing: -1px; margin-bottom: 0px !important;}
-    h3 { font-weight: 600 !important; color: #1e293b; letter-spacing: -0.5px; }
+    h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
+    h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 7. 라디오, 셀렉트 박스, 텍스트 인풋 등 폼 요소 둥글게 */
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div {
-        border-radius: 6px;
-        border: 1px solid #cbd5e1;
+    /* =========================================================
+       7. [수정됨] 입력 폼 디자인 개선 (흰선, 빨간선 완벽 제거)
+       ========================================================= */
+    /* 기본 상태: 거슬리는 흰 선 제거, 아주 연한 테두리와 반투명 배경 적용 */
+    div[data-baseweb="input"], div[data-baseweb="select"] {
+        border-radius: 8px !important;
+        border: none !important;
+        background-color: rgba(148, 163, 184, 0.08) !important; /* 다크/라이트 모두 어울리는 반투명 배경 */
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2) !important; /* 아주 은은한 테두리만 */
+        transition: all 0.2s ease;
+    }
+
+    /* 클릭(포커스) 상태: 빨간색 대신 세련된 브랜드 컬러(인디고) 테두리로 부드럽게 변경 */
+    div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within {
+        box-shadow: inset 0 0 0 2px #4f46e5 !important; /* 두께 2px의 세련된 인디고 색상 */
+        background-color: rgba(148, 163, 184, 0.12) !important;
+    }
+    
+    /* 입력창 내부 텍스트 박스 배경 투명화 (이중 배경 방지) */
+    div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
+        background-color: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -164,7 +178,7 @@ with st.sidebar:
     user_name = st.text_input("이름", placeholder="이름을 입력하세요")
     team_name = st.selectbox("소속 팀", ["영업1팀", "영업2팀", "개발팀", "인사팀", "마케팅팀", "기타"])
     
-    st.markdown("<hr style='margin: 1.5rem 0; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 1.5rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
     
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>프로젝트 설정</h3>", unsafe_allow_html=True)
     project_type = st.radio("프로젝트 수행 여부", ["해당없음", "기간 선택"], horizontal=True, label_visibility="collapsed")
@@ -238,7 +252,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
 # 3. 리스트 표시, 자동 절사 및 제출 로직
 # ==========================================
 if st.session_state.expense_items:
-    st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
     limit = max_project_cost if project_type == "기간 선택" else 0
     current_proj_total = 0
     
@@ -276,7 +290,7 @@ if st.session_state.expense_items:
                 input_cost += item.get('배달비', 0)
                 
             effective_cost = input_cost
-            status_html = f"<div style='margin-top:8px; font-size: 16px; font-weight: 600; color: #0f172a;'>{effective_cost:,} 원</div>"
+            status_html = f"<div style='margin-top:8px; font-size: 16px; font-weight: 600;'>{effective_cost:,} 원</div>"
             
             if item['종류'] == "프로젝트비용":
                 if limit == 0:
@@ -288,11 +302,11 @@ if st.session_state.expense_items:
                 elif current_proj_total + input_cost > limit:
                     effective_cost = limit - current_proj_total
                     current_proj_total = limit
-                    status_html = f"<div style='margin-top:2px; line-height:1.2;'><span style='font-size: 16px; font-weight: 600; color: #0f172a;'>{effective_cost:,} 원</span><br/><span style='color:#f59e0b; font-size:12px; font-weight:600;'>절사됨 (입력 {input_cost:,})</span></div>"
+                    status_html = f"<div style='margin-top:2px; line-height:1.2;'><span style='font-size: 16px; font-weight: 600;'>{effective_cost:,} 원</span><br/><span style='color:#f59e0b; font-size:12px; font-weight:600;'>절사됨 (입력 {input_cost:,})</span></div>"
                 else:
                     effective_cost = input_cost
                     current_proj_total += effective_cost
-                    status_html = f"<div style='margin-top:8px; font-size: 16px; font-weight: 600; color: #0f172a;'>{effective_cost:,} 원</div>"
+                    status_html = f"<div style='margin-top:8px; font-size: 16px; font-weight: 600;'>{effective_cost:,} 원</div>"
                     
             item['_effective_cost'] = effective_cost
             r1[4].markdown(status_html, unsafe_allow_html=True)
@@ -305,7 +319,7 @@ if st.session_state.expense_items:
 
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
             if is_high_cost_meal:
-                st.markdown("<hr style='margin: 0.5rem 0; border-top: 1px dashed #cbd5e1;'>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin: 0.5rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.3);'>", unsafe_allow_html=True)
                 r2 = st.columns([1.2, 4.3, 1.5])
                 item['비고'] = r2[1].text_input(f"note_{idx}", item['비고'], placeholder="함께 식사한 인원 등 비고 사항을 입력하세요", label_visibility="collapsed", disabled=st.session_state.submitted)
                 item['배달비'] = r2[2].number_input(f"del_fee_{idx}", value=item['배달비'], step=500, label_visibility="collapsed", disabled=st.session_state.submitted)
