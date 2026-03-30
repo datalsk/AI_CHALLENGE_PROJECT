@@ -21,6 +21,9 @@ if 'selected_cat' not in st.session_state: st.session_state.selected_cat = "야�
 if 'file_cat_map' not in st.session_state: st.session_state.file_cat_map = {}
 if 'submitted' not in st.session_state: st.session_state.submitted = False
 
+# [버그 픽스] 업로더 초기화를 위한 고유 키(Key) 상태 추가
+if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
+
 def change_category(cat_name):
     st.session_state.selected_cat = cat_name
 
@@ -102,7 +105,6 @@ with st.sidebar:
     day_status = "해당없음"
 
     if project_type == "기간 선택":
-        # [수정] "Choose a date range"가 안 뜨도록 기본값(이번 달 1일 ~ 오늘) 세팅
         today = datetime.today()
         first_day = today.replace(day=1)
         
@@ -128,8 +130,13 @@ for i, cat in enumerate(categories):
 
 st.divider()
 
-# 파일 업로더
-uploaded_files = st.file_uploader("영수증 파일을 올려주세요.", accept_multiple_files=True, key="receipt_uploader")
+# [버그 픽스] 파일 업로더 키를 동적으로 할당하여 분석 후 자동 초기화되도록 설정
+uploaded_files = st.file_uploader(
+    "영수증 파일을 올려주세요.", 
+    accept_multiple_files=True, 
+    key=f"receipt_uploader_{st.session_state.uploader_key}"
+)
+
 if uploaded_files:
     for f in uploaded_files:
         if f.name not in st.session_state.file_cat_map:
@@ -151,7 +158,10 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
                 "배달비": 0, "비고": "", "image_display": img, "is_uncertain": res.get("is_uncertain", False)
             })
     st.session_state.expense_items.sort(key=lambda x: (categories.index(x['종류']), x['결제일자']))
+    
+    # [버그 픽스] 분석이 끝나면 맵을 비우고 업로더 위젯의 키를 올려 박스를 완전히 비워버립니다.
     st.session_state.file_cat_map = {} 
+    st.session_state.uploader_key += 1 
     st.rerun()
 
 # ==========================================
@@ -231,4 +241,6 @@ if st.session_state.expense_items:
         if st.button("🔄 새 영수증 작성하기 (목록 초기화)", use_container_width=True):
             st.session_state.expense_items = []
             st.session_state.submitted = False
+            # [버그 픽스] 새 영수증 작성 시에도 업로더를 초기화하여 깔끔한 상태 제공
+            st.session_state.uploader_key += 1
             st.rerun()
