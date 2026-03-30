@@ -102,7 +102,11 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-def analyze_receipt(uploaded_file):
+def analyze_receipt(uploaded_file, retries=1):
+    """
+    [핵심 업데이트] AI의 창의성을 끄고(temperature: 0.0), 
+    None을 뱉으면 자동으로 재시도(Retry)하는 강력한 함수입니다.
+    """
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -111,16 +115,58 @@ def analyze_receipt(uploaded_file):
 
     base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-    prompt = "영수증 이미지에서 '결제 날짜(YYYY-MM-DD)', '사용처', '합계 금액'을 추출해 JSON 응답해줘. 음수 금액은 무시하고 최종 합계만 가져와."
-    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}], "response_format": { "type": "json_object" }}
     
-    try:
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
-        res_data = json.loads(response.json()['choices'][0]['message']['content'])
-        res_data["is_uncertain"] = (res_data.get("사용처") == "미확인" or safe_int(res_data.get("합계 금액")) == 0)
-        return res_data
-    except: 
-        return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
+    prompt = """
+    영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
+    1. "결제 날짜": YYYY-MM-DD 형식. 
+    2. "사용처": 상호명 추출.
+    3. "합계 금액": 최종 결제 금액 (숫자만).
+    * 경고: 절대로 'None', 'null' 같은 문자열을 반환하지 마. 안 보이면 "미확인" 또는 0을 써.
+    """
+    
+    payload = {
+        "model": "gpt-4o-mini", 
+        "temperature": 0.0, # AI의 변덕/창의성 완벽 차단 (항상 일관된 포맷 유지)
+        "messages": [
+            {"role": "system", "content": "너는 영수증 데이터를 기계처럼 정확하게 추출하는 시스템이야."},
+            {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}
+        ], 
+        "response_format": { "type": "json_object" }
+    }
+    
+    # AI가 엉뚱한 대답을 하면 최대 1번 더 멱살잡고 재요청(Retry)
+    for attempt in range(retries + 1):
+        try:
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
+            res_data = json.loads(response.json()['choices'][0]['message']['content'])
+            
+            # 응답값 검증
+            date_str = str(res_data.get("결제 날짜", "")).strip().lower()
+            shop_str = str(res_data.get("사용처", "")).strip().lower()
+            
+            # AI가 또 None을 뱉었다면? -> 남은 기회가 있다면 다시 시도
+            if (date_str in ["none", "null", ""] or shop_str in ["none", "null", ""]) and attempt < retries:
+                time.sleep(1)
+                continue
+            
+            # 최종 클리닝 (그래도 이상하면 안전한 기본값으로 덮어씌움)
+            if date_str in ["none", "null", "", "미확인"]: res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
+            else: res_data["결제 날짜"] = str(res_data.get("결제 날짜"))
+            
+            if shop_str in ["none", "null", "", "미확인"]: res_data["사용처"] = "미확인"
+            else: res_data["사용처"] = str(res_data.get("사용처"))
+            
+            res_data["is_uncertain"] = (res_data.get("사용처") == "미확인" or safe_int(res_data.get("합계 금액")) == 0)
+            return res_data
+            
+        except:
+            if attempt < retries:
+                time.sleep(1)
+                continue
+            break
+            
+    # 모든 재시도 실패 시 최후의 보루
+    return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
 
 def save_to_s3(user_name, team_name, day_status, expense_items):
     now = datetime.now()
@@ -202,7 +248,7 @@ with st.sidebar:
 
 st.write("") 
 
-# 카테고리 버튼
+# 카테고 버튼
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
 cols = st.columns(5)
 for i, cat in enumerate(categories):
@@ -227,32 +273,33 @@ if uploaded_files:
 else:
     st.session_state.file_cat_map.clear()
 
-# ==========================================
-# [수정] 다중 분석 시 진행률 표시 및 딜레이 로직
-# ==========================================
 if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 입력", type="primary", use_container_width=True):
     st.session_state.submitted = False 
     
     total_files = len(uploaded_files)
-    # 진행률 표시 바 생성
     progress_bar = st.progress(0, text="AI가 영수증 데이터를 추출하고 있습니다...")
     
     for i, f in enumerate(uploaded_files):
         assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
-        res = analyze_receipt(f)
+        res = analyze_receipt(f) # 업그레이드된 로직 호출
         img = Image.open(f)
         img.thumbnail((500, 500))
+        
         st.session_state.expense_items.append({
-            "종류": assigned_cat, "결제일자": str(res.get("결제 날짜")), 
-            "사용처": str(res.get("사용처")), "인식금액": safe_int(res.get("합계 금액")), 
-            "배달비": 0, "비고": "", "image_display": img, "배달비_이미지_display": None, "is_uncertain": res.get("is_uncertain", False)
+            "종류": assigned_cat, 
+            "결제일자": res.get("결제 날짜"), 
+            "사용처": res.get("사용처"), 
+            "인식금액": safe_int(res.get("합계 금액")), 
+            "배달비": 0, 
+            "비고": "", 
+            "image_display": img, 
+            "배달비_이미지_display": None, 
+            "is_uncertain": res.get("is_uncertain", False)
         })
         
-        # API 과부하 방지를 위한 1초 대기 (다중 파일 처리 시 필수)
         if i < total_files - 1:
-            time.sleep(1)
+            time.sleep(1) # API 과부하 방지 1초 대기
             
-        # 진행률 업데이트
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
         
@@ -260,7 +307,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
     time.sleep(0.5)
-    progress_bar.empty() # 완료 후 프로그레스 바 숨기기
+    progress_bar.empty()
     st.rerun()
 
 # ==========================================
