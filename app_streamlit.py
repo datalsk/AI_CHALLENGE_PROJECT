@@ -6,10 +6,13 @@ import requests
 import json
 import io
 import time
+import calendar
 from datetime import datetime
 from PIL import Image
 
+# ==========================================
 # 0. UI 설정 및 상태 관리
+# ==========================================
 st.set_page_config(page_title="AI 경비 제출 시스템", layout="wide")
 st.markdown("<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;} .stAppDeployButton {display:none;}</style>", unsafe_allow_html=True)
 
@@ -20,10 +23,10 @@ if 'submitted' not in st.session_state: st.session_state.submitted = False
 
 def change_category(cat_name):
     st.session_state.selected_cat = cat_name
-    # 새로운 카테고리 선택 시 제출 상태를 초기화하지 않으려면 이 줄을 유지
-    # 만약 카테고리 이동 시 다시 제출할 수 있게 하려면 st.session_state.submitted = False 추가
 
+# ==========================================
 # 1. 유틸리티 함수
+# ==========================================
 def safe_int(value):
     try:
         if isinstance(value, str):
@@ -33,7 +36,6 @@ def safe_int(value):
     except: return 0
 
 def analyze_receipt(uploaded_file):
-    """[수정] 함수 안에서 직접 secrets를 참조하여 NameError 방지"""
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -41,21 +43,9 @@ def analyze_receipt(uploaded_file):
         return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0}
 
     base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
-    headers = {
-        "Content-Type": "application/json", 
-        "Authorization": f"Bearer {api_key}" # 여기서 에러가 났던 부분 수정
-    }
-    
-    prompt = """
-    영수증 이미지에서 '결제 날짜(YYYY-MM-DD)', '사용처', '합계 금액'을 추출해 JSON 응답해줘. 
-    음수 금액은 무시하고 최종 합계만 가져와.
-    """
-    
-    payload = {
-        "model": "gpt-4o-mini", 
-        "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}], 
-        "response_format": { "type": "json_object" }
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    prompt = "영수증 이미지에서 '결제 날짜(YYYY-MM-DD)', '사용처', '합계 금액'을 추출해 JSON 응답해줘. 음수 금액은 무시하고 최종 합계만 가져와."
+    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}], "response_format": { "type": "json_object" }}
     
     try:
         response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
@@ -71,16 +61,9 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     timestamp = now.strftime('%Y%m%d_%H%M%S')
     summary_list = []
     
-    # Secrets에서 정보 가져오기
     s3_bucket = st.secrets["S3_BUCKET_NAME"]
     aws_region = st.secrets["AWS_REGION"]
-    
-    s3_client = boto3.client(
-        's3', 
-        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"], 
-        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"], 
-        region_name=aws_region
-    )
+    s3_client = boto3.client('s3', aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"], aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"], region_name=aws_region)
 
     for idx, item in enumerate(expense_items):
         img_url = "N/A"
@@ -99,20 +82,41 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             "비고": item.get('비고', ""), "증빙URL": img_url
         })
         
-    s3_client.put_object(
-        Bucket=s3_bucket, 
-        Key=f"data/{date_path}/{team_name}/{user_name}_{timestamp}.json", 
-        Body=json.dumps(summary_list, ensure_ascii=False).encode('utf-8')
-    )
+    s3_client.put_object(Bucket=s3_bucket, Key=f"data/{date_path}/{team_name}/{user_name}_{timestamp}.json", Body=json.dumps(summary_list, ensure_ascii=False).encode('utf-8'))
     return True
 
-# 2. 메인 UI
+# ==========================================
+# 2. 메인 UI 및 사이드바 로직
+# ==========================================
 st.title("📑 AI 경비 제출 시스템")
 
 with st.sidebar:
+    st.header("👤 제출자 정보")
     user_name = st.text_input("성함", placeholder="홍길동")
     team_name = st.selectbox("소속 팀", ["영업1팀", "영업2팀", "개발팀", "인사팀", "마케팅팀", "기타"])
-    day_status = st.radio("수행 일수", ["해당없음", "월 10일 이상", "월 20일 이상 수행"], horizontal=True)
+    
+    # [신규 추가] 캘린더를 활용한 프로젝트 기간 및 한도 계산 로직
+    st.divider()
+    project_type = st.radio("프로젝트 수행 여부", ["해당없음", "기간 선택"], horizontal=True)
+    
+    max_project_cost = 0
+    day_status = "해당없음"
+
+    if project_type == "기간 선택":
+        dates = st.date_input("프로젝트 기간", value=(), help="시작일과 종료일을 순서대로 클릭하세요.")
+        if len(dates) == 2:
+            start_date, end_date = dates
+            working_days = (end_date - start_date).days + 1
+            # 시작일 기준 해당 월의 전체 일수 계산
+            total_month_days = calendar.monthrange(start_date.year, start_date.month)[1]
+            
+            # 한도 계산: 200,000 * (근무일수 / 전체일수)
+            max_project_cost = int(200000 * (working_days / total_month_days))
+            day_status = f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}"
+            
+            st.success(f"💡 이번 달 프로젝트 한도: **{max_project_cost:,}원**\n(근무 {working_days}일 / 해당월 {total_month_days}일)")
+        else:
+            st.warning("달력에서 시작일과 종료일을 모두 선택해주세요.")
 
 # 카테고리 버튼
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
@@ -132,7 +136,7 @@ if uploaded_files:
 
 # 분석 버튼
 if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작", type="primary", use_container_width=True):
-    st.session_state.submitted = False # 새 분석 시 제출 상태 해제
+    st.session_state.submitted = False 
     with st.spinner("AI 분석 중..."):
         for f in uploaded_files:
             assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
@@ -148,8 +152,41 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
     st.session_state.file_cat_map = {} 
     st.rerun()
 
-# 3. 리스트 표시 및 제출 로직
+# ==========================================
+# 3. 리스트 표시, 자동 절사 및 제출 로직
+# ==========================================
 if st.session_state.expense_items:
+    
+    # [신규 추가] 프로젝트 비용 자동 절사 및 삭제 로직
+    if not st.session_state.submitted:
+        limit = max_project_cost if project_type == "기간 선택" else 0
+        current_proj_total = sum(i['인식금액'] + i.get('배달비', 0) for i in st.session_state.expense_items if i['종류'] == "프로젝트비용")
+
+        if current_proj_total > limit:
+            st.warning(f"⚠️ 프로젝트 비용 한도({limit:,}원)를 초과하여 자동으로 초과분이 절사/삭제되었습니다.")
+            
+            total_calc = 0
+            new_items = []
+            for item in st.session_state.expense_items:
+                if item['종류'] == "프로젝트비용":
+                    cost = item['인식금액'] + item.get('배달비', 0)
+                    if total_calc >= limit:
+                        continue # 이미 한도를 채웠으므로 이후 영수증은 삭제(Skip)
+                    
+                    if total_calc + cost > limit:
+                        # 한도를 넘치게 하는 마지막 영수증은 남은 한도만큼만 절사
+                        item['인식금액'] = limit - total_calc
+                        item['배달비'] = 0 # 배달비 초기화
+                        total_calc += item['인식금액']
+                        new_items.append(item)
+                    else:
+                        total_calc += cost
+                        new_items.append(item)
+                else:
+                    new_items.append(item) # 다른 카테고리는 그대로 유지
+            
+            st.session_state.expense_items = new_items
+
     st.subheader("📝 내역 확인")
     
     if st.session_state.submitted:
@@ -181,6 +218,9 @@ if st.session_state.expense_items:
     if not st.session_state.submitted:
         if st.button("🚀 서버로 최종 제출", type="primary", use_container_width=True):
             if not user_name: st.error("제출자 성함을 입력해주세요.")
+            # 프로젝트 기간을 선택해놓고 날짜를 다 안채웠을 때 막는 로직
+            elif project_type == "기간 선택" and max_project_cost == 0:
+                st.error("달력에서 프로젝트 종료일을 마저 선택해주세요.")
             else:
                 with st.spinner("서버로 전송 중..."):
                     if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
