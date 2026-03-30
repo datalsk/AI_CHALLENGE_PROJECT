@@ -20,8 +20,6 @@ if 'expense_items' not in st.session_state: st.session_state.expense_items = []
 if 'selected_cat' not in st.session_state: st.session_state.selected_cat = "야근식대"
 if 'file_cat_map' not in st.session_state: st.session_state.file_cat_map = {}
 if 'submitted' not in st.session_state: st.session_state.submitted = False
-
-# [버그 픽스] 업로더 초기화를 위한 고유 키(Key) 상태 추가
 if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 
 def change_category(cat_name):
@@ -130,18 +128,31 @@ for i, cat in enumerate(categories):
 
 st.divider()
 
-# [버그 픽스] 파일 업로더 키를 동적으로 할당하여 분석 후 자동 초기화되도록 설정
+# 파일 업로더
 uploaded_files = st.file_uploader(
     "영수증 파일을 올려주세요.", 
     accept_multiple_files=True, 
     key=f"receipt_uploader_{st.session_state.uploader_key}"
 )
 
+# [버그 픽스] X 버튼으로 삭제된 파일을 감지하고 맵에서 동기화하여 삭제하는 로직
 if uploaded_files:
+    current_files = [f.name for f in uploaded_files]
+    
+    # 1. 화면에 없는 파일은 기억 장치(딕셔너리)에서도 삭제
+    keys_to_remove = [k for k in st.session_state.file_cat_map.keys() if k not in current_files]
+    for k in keys_to_remove:
+        st.session_state.file_cat_map.pop(k)
+        
+    # 2. 새로 추가된 파일만 현재 카테고리로 맵핑
     for f in uploaded_files:
         if f.name not in st.session_state.file_cat_map:
             st.session_state.file_cat_map[f.name] = st.session_state.selected_cat
+            
     st.caption("📍 분류 현황: " + " | ".join([f"📄 {f.name} → **[{st.session_state.file_cat_map[f.name]}]**" for f in uploaded_files]))
+else:
+    # 파일이 전부 지워졌다면 기억 장치도 완전히 초기화
+    st.session_state.file_cat_map.clear()
 
 # 분석 버튼
 if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작", type="primary", use_container_width=True):
@@ -158,8 +169,6 @@ if uploaded_files and st.button(f"✨ {len(uploaded_files)}건 AI 분석 시작"
                 "배달비": 0, "비고": "", "image_display": img, "is_uncertain": res.get("is_uncertain", False)
             })
     st.session_state.expense_items.sort(key=lambda x: (categories.index(x['종류']), x['결제일자']))
-    
-    # [버그 픽스] 분석이 끝나면 맵을 비우고 업로더 위젯의 키를 올려 박스를 완전히 비워버립니다.
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
     st.rerun()
@@ -241,6 +250,5 @@ if st.session_state.expense_items:
         if st.button("🔄 새 영수증 작성하기 (목록 초기화)", use_container_width=True):
             st.session_state.expense_items = []
             st.session_state.submitted = False
-            # [버그 픽스] 새 영수증 작성 시에도 업로더를 초기화하여 깔끔한 상태 제공
             st.session_state.uploader_key += 1
             st.rerun()
