@@ -363,7 +363,9 @@ if st.session_state.expense_items:
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
             with r1[5]:
-                with st.popover("영수증"): st.image(item['image_display'], use_container_width=True)
+                with st.popover("영수증"): 
+                    # 메인 영수증 크기 제한 추가
+                    st.image(item['image_display'], width=400)
             if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
@@ -383,7 +385,6 @@ if st.session_state.expense_items:
                     item['배달비'] = 0
                     item['배달비_이미지_display'] = None
                 else:
-                    # [수정] 배달비 입력, 파일 업로드, 그리고 팝업 미리보기 레이아웃 최적화
                     c2_1, c2_2, c2_3 = st.columns([1.5, 3, 1.2])
                     
                     item['배달비'] = c2_1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", disabled=st.session_state.submitted)
@@ -391,14 +392,18 @@ if st.session_state.expense_items:
                     del_file = c2_2.file_uploader("배달비 영수증 첨부 (이미지 파일)", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", disabled=st.session_state.submitted)
                     
                     if del_file:
-                        item['배달비_이미지_display'] = Image.open(del_file)
+                        # [핵심 수정] 업로드 시 원본 이미지를 500x500 픽셀 비율에 맞춰 썸네일로 압축/리사이징 합니다.
+                        del_img = Image.open(del_file)
+                        del_img.thumbnail((500, 500))
+                        item['배달비_이미지_display'] = del_img
                         
                     with c2_3:
-                        st.write("") # 버튼 위치를 업로더 박스 중앙과 맞추기 위한 여백
+                        st.write("") 
                         st.write("")
                         if item.get('배달비_이미지_display'):
                             with st.popover("미리보기"):
-                                st.image(item['배달비_이미지_display'], use_container_width=True)
+                                # 팝업 안에서도 가로 크기를 안전하게 한 번 더 제한합니다.
+                                st.image(item['배달비_이미지_display'], width=400)
                                 
                     item['비고'] = "배달비 증빙"
 
