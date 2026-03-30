@@ -27,7 +27,6 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 메인 카드 디자인 (패딩 약간 넓힘) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
         box-shadow: rgba(0, 0, 0, 0.03) 0px 4px 10px !important;
@@ -64,7 +63,6 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 디자인 (포커스 링 개선) */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
         border: none !important;
@@ -80,7 +78,6 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    /* 파일 업로더 박스 크기 및 라운딩 최적화 */
     [data-testid="stFileUploadDropzone"] {
         border-radius: 8px !important;
         padding: 1rem !important;
@@ -339,7 +336,6 @@ if st.session_state.expense_items:
     
     for idx, item in enumerate(st.session_state.expense_items):
         with st.container(border=True):
-            # 메인 영수증 영역
             r1 = st.columns([1.2, 1.3, 1.8, 1.2, 1.6, 0.6, 0.5])
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -347,9 +343,7 @@ if st.session_state.expense_items:
             item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             input_cost = item['인식금액']
-            if item['종류'] == '야근식대':
-                input_cost += item.get('배달비', 0)
-                
+            
             effective_cost = input_cost
             status_html = f"<div style='margin-top:8px; font-size: 16px; font-weight: 600;'>{effective_cost:,} 원</div>"
             
@@ -379,17 +373,14 @@ if st.session_state.expense_items:
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
-            # [핵심 변경] 추가 증빙 영역 레이아웃 최적화
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
             if is_high_cost_meal:
-                # 구분선을 옅게 처리하고 패딩을 주어 하위 메뉴임을 강조
                 st.markdown("<hr style='margin: 0.8rem 0 0.5rem 0; border-top: 1px solid rgba(79, 70, 229, 0.1);'>", unsafe_allow_html=True)
                 
                 reason_key = f"reason_{idx}"
                 if reason_key not in st.session_state:
                     st.session_state[reason_key] = "동석자 입력"
                 
-                # 2단 구조: 좌측에 라디오 버튼, 우측에 입력 폼 배치
                 c_sub1, c_sub2 = st.columns([1.5, 5.5])
                 
                 with c_sub1:
@@ -398,28 +389,25 @@ if st.session_state.expense_items:
                 
                 with c_sub2:
                     if reason == "동석자 입력":
-                        st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True) # 줄맞춤용 여백
+                        st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True) 
                         item['비고'] = st.text_input("동석자 정보", value=item.get('비고', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
                         item['배달비'] = 0
                         item['배달비_이미지_display'] = None
                     else:
-                        # 배달비 전용 세부 3단 컬럼
-                        d1, d2, d3 = st.columns([1.2, 2.5, 0.8])
+                        item['배달비'] = 0 # 배달비 수기 입력란 제거 (기본값 0 유지)
                         
-                        # 1. 배달비 금액
-                        d1.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 금액</div>", unsafe_allow_html=True)
-                        item['배달비'] = d1.number_input("배달비 금액", value=item.get('배달비', 0), step=500, key=f"del_fee_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        # [수정] 업로더와 팝업 버튼만 널찍하게 2단으로 배치
+                        d1, d2 = st.columns([4.5, 1])
                         
-                        # 2. 영수증 업로더
-                        d2.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 영수증 첨부</div>", unsafe_allow_html=True)
-                        del_file = d2.file_uploader("배달비 영수증", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        d1.markdown("<div style='font-size:13px; font-weight:500; color:#64748b; margin-bottom:2px;'>배달 영수증 첨부</div>", unsafe_allow_html=True)
+                        del_file = d1.file_uploader("배달비 영수증", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        
                         if del_file:
                             del_img = Image.open(del_file)
                             del_img.thumbnail((500, 500))
                             item['배달비_이미지_display'] = del_img
                             
-                        # 3. 미리보기 팝업 (버튼 위치 하단 정렬)
-                        with d3:
+                        with d2:
                             st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
                             if item.get('배달비_이미지_display'):
                                 with st.popover("미리보기"):
