@@ -23,11 +23,12 @@ st.markdown("""
         font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif !important;
     }
     
-    /* 2. 불필요한 기본 UI 숨기기 */
+    /* 2. 불필요한 기본 UI 숨기기 (사이드바 버튼 복구) */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     .stAppDeployButton {display:none;}
+    /* header 전체를 숨기면 사이드바 열기 버튼이 날아가므로 배경만 투명하게 처리 */
+    header {background-color: transparent !important;}
 
     /* 3. 모던 카드 UI (은은한 그림자와 둥근 모서리) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -183,12 +184,13 @@ with st.sidebar:
             max_project_cost = int(200000 * (working_days / total_month_days))
             day_status = f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}"
             
-            # 전문적인 안내 박스
             st.info(f"이번 달 배정 한도: {max_project_cost:,}원\n(근무 {working_days}일 / 해당월 {total_month_days}일)", icon="ℹ️")
         else:
             st.warning("달력에서 종료일을 선택해주세요.", icon="⚠️")
 
-# 카테고리 버튼 (이모지 제거)
+st.write("") 
+
+# 카테고리 버튼
 categories = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
 cols = st.columns(5)
 for i, cat in enumerate(categories):
@@ -213,7 +215,7 @@ if uploaded_files:
 else:
     st.session_state.file_cat_map.clear()
 
-# 분석 버튼 (AI 강조 제거)
+# 분석 버튼
 if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 입력", type="primary", use_container_width=True):
     st.session_state.submitted = False 
     with st.spinner("데이터를 추출하고 있습니다..."):
@@ -233,7 +235,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
     st.rerun()
 
 # ==========================================
-# 3. 리스트 표시, 자동 절사 및 제출 로직 (Card UI 적용)
+# 3. 리스트 표시, 자동 절사 및 제출 로직
 # ==========================================
 if st.session_state.expense_items:
     st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
@@ -262,7 +264,6 @@ if st.session_state.expense_items:
     current_proj_total = 0 
     
     for idx, item in enumerate(st.session_state.expense_items):
-        # [디자인 핵심] 각 항목을 border가 있는 컨테이너(카드) 안에 넣어서 기업용 대시보드 느낌 강조
         with st.container(border=True):
             r1 = st.columns([1.2, 1.3, 1.8, 1.2, 1.6, 0.6, 0.5])
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -297,7 +298,6 @@ if st.session_state.expense_items:
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
             with r1[5]:
-                # 이모지 제거, 텍스트 버튼화
                 with st.popover("영수증 보기"): st.image(item['image_display'], use_container_width=True)
             if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
@@ -319,10 +319,9 @@ if st.session_state.expense_items:
             else:
                 with st.spinner("서버에 데이터를 등록하고 있습니다..."):
                     if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
-                        # [디자인 핵심] 장난스러운 풍선 대신 전문적인 토스트 알림 사용
                         st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
                         st.session_state.submitted = True 
-                        time.sleep(1) # 토스트 애니메이션 시간 대기
+                        time.sleep(1) 
                         st.rerun()
     else:
         if st.button("새 정산 작성하기", use_container_width=True):
