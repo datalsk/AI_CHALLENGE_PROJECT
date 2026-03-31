@@ -27,13 +27,13 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* [핵심] 카드 패딩 대폭 축소 및 콤팩트화 */
+    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
-        box-shadow: rgba(0, 0, 0, 0.03) 0px 2px 6px !important;
+        box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
         border: 1px solid rgba(148, 163, 184, 0.2) !important;
         background-color: rgba(255, 255, 255, 0.02) !important;
-        padding: 6px 10px !important; /* 상하 6px, 좌우 10px로 타이트하게 */
+        padding: 4px 8px !important; 
         margin-bottom: 0px !important;
         transition: all 0.2s ease;
     }
@@ -58,15 +58,19 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* [핵심] 일반 버튼 및 팝오버 높이 축소 (입력창과 높이 맞춤) */
+    /* [핵심] 일반 버튼 및 팝오버: 세로 깨짐 완벽 방지 & 높이 축소 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 500 !important;
         font-size: 13px !important;
         border: 1px solid rgba(148, 163, 184, 0.3) !important;
         background-color: transparent !important;
-        padding: 2px 10px !important;
-        min-height: 38px !important; /* Streamlit 입력창 기본 높이와 일치 */
+        padding: 0px 8px !important;
+        min-height: 32px !important; 
+        height: 32px !important;
+        line-height: 32px !important;
+        white-space: nowrap !important; /* 글자 세로 꺾임 방지 */
+        min-width: max-content !important;
         margin: 0 !important;
     }
     .stButton > button[kind="secondary"]:hover, div[data-testid="stPopover"] > button:hover {
@@ -76,14 +80,15 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 라운딩 및 그림자 */
+    /* [핵심] 입력 폼 높이 극한으로 축소 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
         background-color: rgba(148, 163, 184, 0.08) !important;
         box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2) !important;
         transition: all 0.2s ease;
-        min-height: 38px !important; /* 높이 통일 */
+        min-height: 32px !important; 
+        height: 32px !important;
     }
     div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within {
         box-shadow: inset 0 0 0 2px #4f46e5 !important;
@@ -91,11 +96,11 @@ st.markdown("""
     }
     div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
         background-color: transparent !important;
-        padding-top: 4px !important;
-        padding-bottom: 4px !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+        font-size: 14px !important;
     }
     
-    /* 파일 업로더 높이 콤팩트화 */
     [data-testid="stFileUploadDropzone"] {
         border-radius: 6px !important;
         padding: 0.5rem !important;
@@ -354,51 +359,64 @@ if st.session_state.expense_items:
     
     for idx, item in enumerate(st.session_state.expense_items):
         with st.container(border=True):
-            # [수정] vertical_alignment="center"를 통해 모든 요소를 수직 중앙으로 정렬
-            r1 = st.columns([1.2, 1.3, 1.8, 1.2, 1.6, 0.6, 0.5], vertical_alignment="center")
+            
+            input_cost = item['인식금액']
+            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
+
+            # [핵심] 가로 레이아웃을 넓게 써서 '비고'란을 같은 줄에 배치합니다. (단, 15k 초과 야근식대 제외)
+            r1 = st.columns([1.1, 1.1, 1.4, 1.1, 1.2, 1.6, 0.5, 0.4], vertical_alignment="center")
+            
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['사용처'] = r1[2].text_input(f"vn_{idx}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
-            input_cost = item['인식금액']
             effective_cost = input_cost
-            
-            # [수정] Flexbox를 이용해 텍스트 영역을 입력창 높이(38px)에 맞춰 완벽히 중앙 정렬
-            base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:38px; line-height:1.2;'>"
+            base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:32px; line-height:1.2;'>"
             
             if item['종류'] == "프로젝트비용":
                 if limit == 0:
                     effective_cost = 0
-                    status_html = f"{base_html}<del style='color:#94a3b8; font-size:13px;'>{input_cost:,}</del><span style='color:#ef4444; font-size:12px; font-weight:600;'>기간 미설정 (제외)</span></div>"
+                    status_html = f"{base_html}<del style='color:#94a3b8; font-size:12px;'>{input_cost:,}</del><span style='color:#ef4444; font-size:11px; font-weight:600;'>미설정 제외</span></div>"
                 elif current_proj_total >= limit:
                     effective_cost = 0
-                    status_html = f"{base_html}<del style='color:#94a3b8; font-size:13px;'>{input_cost:,}</del><span style='color:#ef4444; font-size:12px; font-weight:600;'>한도 초과 (제외)</span></div>"
+                    status_html = f"{base_html}<del style='color:#94a3b8; font-size:12px;'>{input_cost:,}</del><span style='color:#ef4444; font-size:11px; font-weight:600;'>한도 초과</span></div>"
                 elif current_proj_total + input_cost > limit:
                     effective_cost = limit - current_proj_total
                     current_proj_total = limit
-                    status_html = f"{base_html}<span style='font-size:15px; font-weight:600;'>{effective_cost:,} 원</span><span style='color:#f59e0b; font-size:11px; font-weight:600;'>절사됨 (입력 {input_cost:,})</span></div>"
+                    status_html = f"{base_html}<span style='font-size:14px; font-weight:600;'>{effective_cost:,} 원</span><span style='color:#f59e0b; font-size:10px; font-weight:600;'>절사됨({input_cost:,})</span></div>"
                 else:
                     effective_cost = input_cost
                     current_proj_total += effective_cost
-                    status_html = f"{base_html}<span style='font-size:15px; font-weight:600;'>{effective_cost:,} 원</span></div>"
+                    status_html = f"{base_html}<span style='font-size:14px; font-weight:600;'>{effective_cost:,} 원</span></div>"
             else:
-                status_html = f"{base_html}<span style='font-size:15px; font-weight:600;'>{effective_cost:,} 원</span></div>"
+                status_html = f"{base_html}<span style='font-size:14px; font-weight:600;'>{effective_cost:,} 원</span></div>"
                     
             item['_effective_cost'] = effective_cost
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
-            with r1[5]:
+            # --- 비고란 처리 (1줄 압축의 핵심) ---
+            if is_high_cost_meal:
+                # 야근식대 1.5만 이상은 증빙이 복잡하므로 1줄에서 안내 문구만 띄움
+                r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
+            else:
+                # 일반 항목은 아예 같은 줄에 비고(선택)칸을 합쳐버립니다! (2번째 줄 완전 소멸)
+                item['배달비'] = 0
+                item['배달비_이미지_display'] = None
+                if item.get('비고') == "배달비 증빙": item['비고'] = ""
+                item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+
+            # --- 공통 버튼 (영수증 & 삭제) ---
+            with r1[6]:
                 with st.popover("영수증"): 
                     st.image(item['image_display'], width=400)
-            if r1[6].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
+            if r1[7].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
-            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
-            
+            # --- 야근식대 15,000원 이상일 때만 열리는 특수 2번째 줄 ---
             if is_high_cost_meal:
-                st.markdown("<hr style='margin: 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.1);'>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
                 reason_key = f"reason_{idx}"
                 if reason_key not in st.session_state:
@@ -427,24 +445,10 @@ if st.session_state.expense_items:
                             
                         with d2:
                             if item.get('배달비_이미지_display'):
-                                with st.popover("미리보기"):
+                                with st.popover("배달증빙"):
                                     st.image(item['배달비_이미지_display'], width=400)
                         
                         item['비고'] = "배달비 증빙"
-                        
-            else:
-                st.markdown("<hr style='margin: 0.4rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
-                
-                item['배달비'] = 0
-                item['배달비_이미지_display'] = None
-                if item.get('비고') == "배달비 증빙":
-                    item['비고'] = ""
-                    
-                c_free1, c_free2 = st.columns([1.5, 5.5], vertical_alignment="center")
-                with c_free1:
-                    st.markdown("<div style='font-size:12px; font-weight:500; opacity:0.6; padding-left:4px;'>비고 (선택)</div>", unsafe_allow_html=True)
-                with c_free2:
-                    item['비고'] = st.text_input("자유 비고란", value=item.get('비고', ''), placeholder="추가 설명이 필요하다면 입력하세요.", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
     st.write("")
     if not st.session_state.submitted:
