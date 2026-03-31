@@ -373,8 +373,11 @@ if st.session_state.expense_items:
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
+            # --- [핵심 수정] 비고란 로직 분기 ---
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
+            
             if is_high_cost_meal:
+                # 1. 야근식대 15,000원 이상일 때 (기존 증빙 로직 유지)
                 st.markdown("<hr style='margin: 0.8rem 0 0.5rem 0; border-top: 1px solid rgba(79, 70, 229, 0.1);'>", unsafe_allow_html=True)
                 
                 reason_key = f"reason_{idx}"
@@ -390,7 +393,7 @@ if st.session_state.expense_items:
                 with c_sub2:
                     if reason == "동석자 입력":
                         st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True) 
-                        item['비고'] = st.text_input("동석자 정보", value=item.get('비고', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        item['비고'] = st.text_input("동석자 정보", value=item.get('비고', '') if item.get('비고') != "배달비 증빙" else "", placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
                         item['배달비'] = 0
                         item['배달비_이미지_display'] = None
                     else:
@@ -412,6 +415,22 @@ if st.session_state.expense_items:
                                     st.image(item['배달비_이미지_display'], width=400)
                         
                         item['비고'] = "배달비 증빙"
+                        
+            else:
+                # 2. 그 외 모든 항목 (자유 비고란 추가)
+                st.markdown("<hr style='margin: 0.5rem 0 0.4rem 0; border-top: 1px dashed rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
+                
+                # 만약 이전 상태에서 넘어왔다면 배달비 관련 데이터를 안전하게 초기화
+                item['배달비'] = 0
+                item['배달비_이미지_display'] = None
+                if item.get('비고') == "배달비 증빙":
+                    item['비고'] = ""
+                    
+                c_free1, c_free2 = st.columns([1.5, 5.5])
+                with c_free1:
+                    st.markdown("<div style='font-size:12px; font-weight:500; color:#64748b; margin-top:8px; padding-left: 4px;'>비고 (선택)</div>", unsafe_allow_html=True)
+                with c_free2:
+                    item['비고'] = st.text_input("자유 비고란", value=item.get('비고', ''), placeholder="결제 내역에 대한 추가 설명이 필요하다면 자유롭게 입력하세요.", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
     st.write("")
     if not st.session_state.submitted:
