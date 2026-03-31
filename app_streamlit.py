@@ -27,7 +27,7 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 카드 패딩 극한으로 축소 */
+    /* 카드 패딩 극한으로 축소 및 그림자 완화 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -40,7 +40,7 @@ st.markdown("""
     
     /* 기본 컬럼 갭 축소 */
     [data-testid="column"] > div {
-        gap: 0.2rem !important;
+        gap: 0.3rem !important;
     }
     
     /* 주요 버튼 */
@@ -58,19 +58,25 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* [핵심] 일반 버튼 및 팝오버: 세로 깨짐 완벽 방지 & 높이 축소 */
+    /* [핵심] 일반 버튼 및 팝오버: 세로 깨짐 완벽 방지 & 높이 36px 통일 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
         font-size: 13px !important;
         border: 1px solid rgba(148, 163, 184, 0.3) !important;
         background-color: transparent !important;
-        padding: 0px 8px !important;
-        min-height: 32px !important; 
-        height: 32px !important;
-        line-height: 32px !important;
-        white-space: nowrap !important; /* 글자 세로 꺾임 방지 */
-        min-width: max-content !important;
+        padding: 0px 10px !important;
+        height: 36px !important;
+        min-height: 36px !important; 
+        white-space: nowrap !important; /* 세로 꺾임 방지 1단계 */
+        word-break: keep-all !important; /* 세로 꺾임 방지 2단계 */
+        margin: 0 !important;
+    }
+    /* 버튼 내부 텍스트 요소(p 태그 등)까지 세로 꺾임 강제 방지 */
+    .stButton > button[kind="secondary"] *, div[data-testid="stPopover"] > button * {
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        line-height: 36px !important;
         margin: 0 !important;
     }
     .stButton > button[kind="secondary"]:hover, div[data-testid="stPopover"] > button:hover {
@@ -80,15 +86,15 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* [핵심] 입력 폼 높이 극한으로 축소 */
+    /* [핵심] 입력 폼 높이 36px 완벽 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
         background-color: rgba(148, 163, 184, 0.08) !important;
         box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2) !important;
         transition: all 0.2s ease;
-        min-height: 32px !important; 
-        height: 32px !important;
+        height: 36px !important;
+        min-height: 36px !important; 
     }
     div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within {
         box-shadow: inset 0 0 0 2px #4f46e5 !important;
@@ -363,8 +369,8 @@ if st.session_state.expense_items:
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
-            # [핵심] 가로 레이아웃을 넓게 써서 '비고'란을 같은 줄에 배치합니다. (단, 15k 초과 야근식대 제외)
-            r1 = st.columns([1.1, 1.1, 1.4, 1.1, 1.2, 1.6, 0.5, 0.4], vertical_alignment="center")
+            # [핵심 수정] 버튼들에 넓은 가로 비율(0.7, 0.5)을 할당하여 텍스트 깨짐을 방지합니다.
+            r1 = st.columns([1.0, 1.1, 1.4, 1.1, 1.0, 1.5, 0.7, 0.5], vertical_alignment="center")
             
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -372,7 +378,8 @@ if st.session_state.expense_items:
             item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             effective_cost = input_cost
-            base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:32px; line-height:1.2;'>"
+            # 높이를 36px로 완벽 통일
+            base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
             
             if item['종류'] == "프로젝트비용":
                 if limit == 0:
@@ -395,18 +402,15 @@ if st.session_state.expense_items:
             item['_effective_cost'] = effective_cost
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
-            # --- 비고란 처리 (1줄 압축의 핵심) ---
             if is_high_cost_meal:
-                # 야근식대 1.5만 이상은 증빙이 복잡하므로 1줄에서 안내 문구만 띄움
                 r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
             else:
-                # 일반 항목은 아예 같은 줄에 비고(선택)칸을 합쳐버립니다! (2번째 줄 완전 소멸)
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
                 if item.get('비고') == "배달비 증빙": item['비고'] = ""
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
-            # --- 공통 버튼 (영수증 & 삭제) ---
+            # 공통 버튼 (영수증 & 삭제)
             with r1[6]:
                 with st.popover("영수증"): 
                     st.image(item['image_display'], width=400)
@@ -414,7 +418,7 @@ if st.session_state.expense_items:
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
-            # --- 야근식대 15,000원 이상일 때만 열리는 특수 2번째 줄 ---
+            # 야근식대 15,000원 이상 특수 증빙란
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
