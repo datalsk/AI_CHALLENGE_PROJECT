@@ -212,7 +212,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
 # 2. 메인 UI 및 사이드바 로직
 # ==========================================
 st.title("경비 정산")
-st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증을 업로드하면 AI가 이미지 속 텍스트를 알아서 인식합니다.</p>", unsafe_allow_html=True)
+st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증을 업로드하면 AI가 이미지 속 텍스트를 인식합니다.</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>제출자 정보</h3>", unsafe_allow_html=True)
