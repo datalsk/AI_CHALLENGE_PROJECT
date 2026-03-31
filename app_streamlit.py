@@ -27,7 +27,7 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 카드 패딩 극한으로 축소 및 그림자 완화 */
+    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -58,25 +58,19 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* [핵심] 일반 버튼 및 팝오버: 세로 깨짐 완벽 방지 & 높이 36px 통일 */
+    /* [핵심] 이모지 버튼을 위해 패딩을 최소화하고 정중앙 정렬 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
-        font-size: 13px !important;
+        font-size: 16px !important; /* 이모지가 잘 보이도록 폰트 크기 확대 */
         border: 1px solid rgba(148, 163, 184, 0.3) !important;
         background-color: transparent !important;
-        padding: 0px 10px !important;
+        padding: 0px 6px !important;
         height: 36px !important;
         min-height: 36px !important; 
-        white-space: nowrap !important; /* 세로 꺾임 방지 1단계 */
-        word-break: keep-all !important; /* 세로 꺾임 방지 2단계 */
-        margin: 0 !important;
-    }
-    /* 버튼 내부 텍스트 요소(p 태그 등)까지 세로 꺾임 강제 방지 */
-    .stButton > button[kind="secondary"] *, div[data-testid="stPopover"] > button * {
-        white-space: nowrap !important;
-        word-break: keep-all !important;
-        line-height: 36px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         margin: 0 !important;
     }
     .stButton > button[kind="secondary"]:hover, div[data-testid="stPopover"] > button:hover {
@@ -86,7 +80,7 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* [핵심] 입력 폼 높이 36px 완벽 통일 */
+    /* [핵심] 입력 폼 안의 텍스트가 잘리지 않도록 내부 여백(패딩) 최적화 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -102,8 +96,8 @@ st.markdown("""
     }
     div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
         background-color: transparent !important;
-        padding-top: 2px !important;
-        padding-bottom: 2px !important;
+        padding-left: 8px !important; /* 좌우 여백을 줄여 텍스트 공간 확보 */
+        padding-right: 8px !important;
         font-size: 14px !important;
     }
     
@@ -369,8 +363,9 @@ if st.session_state.expense_items:
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
-            # [핵심 수정] 버튼들에 넓은 가로 비율(0.7, 0.5)을 할당하여 텍스트 깨짐을 방지합니다.
-            r1 = st.columns([1.0, 1.1, 1.4, 1.1, 1.0, 1.5, 0.7, 0.5], vertical_alignment="center")
+            # [핵심 개선] 우측 버튼 공간을 이모지로 대체하여 대폭 축소하고, 그 공간을 카테고리와 금액란에 배분
+            # [1.3 (카테고리), 1.2 (날짜), 1.8 (사용처), 1.4 (금액입력), 1.2 (금액텍스트), 1.8 (비고), 0.4 (영수증), 0.4 (삭제)]
+            r1 = st.columns([1.3, 1.2, 1.8, 1.4, 1.2, 1.8, 0.4, 0.4], vertical_alignment="center")
             
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -378,7 +373,6 @@ if st.session_state.expense_items:
             item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             effective_cost = input_cost
-            # 높이를 36px로 완벽 통일
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
             
             if item['종류'] == "프로젝트비용":
@@ -410,11 +404,11 @@ if st.session_state.expense_items:
                 if item.get('비고') == "배달비 증빙": item['비고'] = ""
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
-            # 공통 버튼 (영수증 & 삭제)
+            # [핵심] 텍스트를 완전히 제거하고 직관적인 이모지(🧾, 🗑️)로 교체하여 공간 낭비 제거
             with r1[6]:
-                with st.popover("영수증"): 
+                with st.popover("🧾"): 
                     st.image(item['image_display'], width=400)
-            if r1[7].button("삭제", key=f"del_{idx}", disabled=st.session_state.submitted):
+            if r1[7].button("🗑️", key=f"del_{idx}", disabled=st.session_state.submitted):
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
@@ -449,7 +443,7 @@ if st.session_state.expense_items:
                             
                         with d2:
                             if item.get('배달비_이미지_display'):
-                                with st.popover("배달증빙"):
+                                with st.popover("🧾"): # 배달 증빙도 이모지로 통일
                                     st.image(item['배달비_이미지_display'], width=400)
                         
                         item['비고'] = "배달비 증빙"
