@@ -58,11 +58,11 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* [핵심] 이모지 버튼을 위해 패딩을 최소화하고 정중앙 정렬 */
+    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
-        font-size: 16px !important; /* 이모지가 잘 보이도록 폰트 크기 확대 */
+        font-size: 16px !important; 
         border: 1px solid rgba(148, 163, 184, 0.3) !important;
         background-color: transparent !important;
         padding: 0px 6px !important;
@@ -80,7 +80,7 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* [핵심] 입력 폼 안의 텍스트가 잘리지 않도록 내부 여백(패딩) 최적화 */
+    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -96,9 +96,17 @@ st.markdown("""
     }
     div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
         background-color: transparent !important;
-        padding-left: 8px !important; /* 좌우 여백을 줄여 텍스트 공간 확보 */
+        padding-left: 8px !important; 
         padding-right: 8px !important;
         font-size: 14px !important;
+    }
+    
+    /* =========================================================
+       [핵심 추가] Number Input의 + / - 버튼(스피너) 완벽 숨김 
+       ========================================================= */
+    [data-testid="stNumberInputStepUp"], 
+    [data-testid="stNumberInputStepDown"] {
+        display: none !important;
     }
     
     [data-testid="stFileUploadDropzone"] {
@@ -363,8 +371,6 @@ if st.session_state.expense_items:
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
-            # [핵심 개선] 우측 버튼 공간을 이모지로 대체하여 대폭 축소하고, 그 공간을 카테고리와 금액란에 배분
-            # [1.3 (카테고리), 1.2 (날짜), 1.8 (사용처), 1.4 (금액입력), 1.2 (금액텍스트), 1.8 (비고), 0.4 (영수증), 0.4 (삭제)]
             r1 = st.columns([1.3, 1.2, 1.8, 1.4, 1.2, 1.8, 0.4, 0.4], vertical_alignment="center")
             
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -404,7 +410,6 @@ if st.session_state.expense_items:
                 if item.get('비고') == "배달비 증빙": item['비고'] = ""
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
-            # [핵심] 텍스트를 완전히 제거하고 직관적인 이모지(🧾, 🗑️)로 교체하여 공간 낭비 제거
             with r1[6]:
                 with st.popover("🧾"): 
                     st.image(item['image_display'], width=400)
@@ -412,7 +417,6 @@ if st.session_state.expense_items:
                 st.session_state.expense_items.pop(idx)
                 st.rerun()
 
-            # 야근식대 15,000원 이상 특수 증빙란
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
@@ -443,7 +447,7 @@ if st.session_state.expense_items:
                             
                         with d2:
                             if item.get('배달비_이미지_display'):
-                                with st.popover("🧾"): # 배달 증빙도 이모지로 통일
+                                with st.popover("🧾"): 
                                     st.image(item['배달비_이미지_display'], width=400)
                         
                         item['비고'] = "배달비 증빙"
