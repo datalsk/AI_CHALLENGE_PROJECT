@@ -217,7 +217,7 @@ st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>�
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>제출자 정보</h3>", unsafe_allow_html=True)
     user_name = st.text_input("이름", placeholder="이름을 입력하세요")
-    team_name = st.selectbox("소속 팀", ["영업1팀", "영업2팀", "개발팀", "인사팀", "마케팅팀", "기타"])
+    team_name = st.selectbox("소속 팀", ["관리본부", "DX1본부", "DX2본부", "CRM본부", "디자인팀", "ICT본부","영업본부","기타"])
     
     st.markdown("<hr style='margin: 1.5rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
     
