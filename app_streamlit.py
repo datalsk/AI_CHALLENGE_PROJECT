@@ -94,16 +94,28 @@ st.markdown("""
         box-shadow: inset 0 0 0 2px #4f46e5 !important;
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
-    div[data-baseweb="input"] > div > input, div[data-baseweb="select"] > div {
+    
+    /* 일반 텍스트 입력창 여백 */
+    div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
         padding-right: 8px !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
         font-size: 14px !important;
     }
     
-    /* =========================================================
-       [핵심 추가] Number Input의 + / - 버튼(스피너) 완벽 숨김 
-       ========================================================= */
+    /* [핵심] 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 '야근교통비' 글자 확보 */
+    div[data-baseweb="select"] > div {
+        background-color: transparent !important;
+        padding-left: 4px !important; 
+        padding-right: 0px !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+        font-size: 14px !important;
+    }
+    
+    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -371,7 +383,9 @@ if st.session_state.expense_items:
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
-            r1 = st.columns([1.3, 1.2, 1.8, 1.4, 1.2, 1.8, 0.4, 0.4], vertical_alignment="center")
+            # [핵심 수정] 첫 번째 칸(카테고리)의 가로 비율을 1.3 -> 1.7 로 대폭 늘려서 '야근교통비'가 짤리지 않게 함
+            # 남는 공간은 비고란(1.8->1.5)과 금액출력(1.2->1.0)에서 약간씩 양보
+            r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
