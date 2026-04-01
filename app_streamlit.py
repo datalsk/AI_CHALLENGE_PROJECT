@@ -27,7 +27,7 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
-    /* [추가] 우측 상단 툴바 (Share, Star, GitHub 등) 완벽 숨김 */
+    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
@@ -165,7 +165,6 @@ def analyze_receipt(uploaded_file, retries=1):
     base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
-    # [추가] 한국식 날짜 표기법(YY.MM.DD) 완벽 대응 프롬프트
     prompt = """
     영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
     1. "결제 날짜": YYYY-MM-DD 형식. 
@@ -336,6 +335,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "인식금액": safe_int(res.get("합계 금액")), 
             "배달비": 0, 
             "비고": "", 
+            "동석자_백업": "", # [추가] 초기 백업 데이터 세팅
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -386,6 +386,10 @@ if st.session_state.expense_items:
     for idx, item in enumerate(st.session_state.expense_items):
         with st.container(border=True):
             
+            # [핵심] 백업 데이터 초기화 로직: 이전 데이터가 있다면 살려냅니다.
+            if '동석자_백업' not in item:
+                item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
+
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
@@ -425,8 +429,11 @@ if st.session_state.expense_items:
             else:
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
-                if item.get('비고') == "배달비 증빙": item['비고'] = ""
+                # 배달비 증빙에서 넘어왔다면 백업된 텍스트를 복구합니다.
+                if item.get('비고') == "배달비 증빙": item['비고'] = item.get('동석자_백업', '')
+                
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                item['동석자_백업'] = item['비고'] # 일반 비고란에서 쓴 내용도 백업해둠
 
             with r1[6]:
                 with st.popover("🧾"): 
@@ -449,7 +456,9 @@ if st.session_state.expense_items:
                 
                 with c_sub2:
                     if reason == "동석자 입력":
-                        item['비고'] = st.text_input("동석자 정보", value=item.get('비고', '') if item.get('비고') != "배달비 증빙" else "", placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        # [핵심] 입력된 동석자 정보를 '동석자_백업' 키에 저장하고 이를 불러옵니다.
+                        item['동석자_백업'] = st.text_input("동석자 정보", value=item.get('동석자_백업', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        item['비고'] = item['동석자_백업']
                         item['배달비'] = 0
                         item['배달비_이미지_display'] = None
                     else:
