@@ -397,7 +397,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [추가/핵심] 영수증 PDF 3x3 격자선 그리기 및 자동 크기 조절
+# [수정] 영수증 PDF 생성 (화질 유지 + 격자선 + 꽉 차게 비율 조절)
 # ==========================================
 def generate_receipts_pdf(expense_items):
     receipt_imgs = []
@@ -426,7 +426,7 @@ def generate_receipts_pdf(expense_items):
                 pages.append(current_page)
             current_page = Image.new('RGB', (A4_W, A4_H), 'white')
             
-            # [새로운 기능] 표 형태의 명시적인 검은색 격자선(Grid)을 A4 용지에 그립니다.
+            # [기능 유지] 격자선(Grid) 그리기
             draw = ImageDraw.Draw(current_page)
             line_width = 4
             line_color = "black"
@@ -455,16 +455,30 @@ def generate_receipts_pdf(expense_items):
         if img_copy.mode != 'RGB':
             img_copy = img_copy.convert('RGB')
             
+        # [수정] 스마트 돋보기 (Scale-to-Fit) 로직 적용
         # 격자선에 이미지가 겹치지 않도록 셀 크기보다 여백을 60픽셀 남깁니다.
         target_w = CELL_W - 60
         target_h = CELL_H - 60
         
-        ratio = min(target_w / img_copy.width, target_h / img_copy.height)
-        new_w = int(img_copy.width * ratio)
-        new_h = int(img_copy.height * ratio)
+        # 이미지 비율 계산
+        img_ratio = img_copy.width / img_copy.height
+        # 셀 비율 계산
+        cell_ratio = target_w / target_h
         
+        # 비율에 따라 스마트 돋보기 적용
+        if img_ratio < cell_ratio: # 더 세로로 긴 경우 (이미지 비율 < 셀 비율)
+            # 세로 방향(CELL_H)에 맞춥니다.
+            new_h = target_h
+            new_w = int(new_h * img_ratio)
+        else: # 더 가로로 긴 경우 (이미지 비율 > 셀 비율)
+            # 가로 방향(CELL_W)에 맞춥니다.
+            new_w = target_w
+            new_h = int(new_w / img_ratio)
+            
+        # 고화질 리사이징 (LANCZOS 필터)
         img_copy = img_copy.resize((new_w, new_h), Image.Resampling.LANCZOS)
         
+        # 칸의 정중앙에 배치하기 위한 오프셋 계산
         offset_x = x + (CELL_W - new_w) // 2
         offset_y = y + (CELL_H - new_h) // 2
         
@@ -549,6 +563,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
         res = analyze_receipt(f) 
         
+        # 화질 유지 설정 (최대 1500px)
         img = Image.open(f)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
@@ -692,6 +707,7 @@ if st.session_state.expense_items:
                         
                         if del_file:
                             del_img = Image.open(del_file)
+                            # 배달비 이미지 화질 유지 설정
                             del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
                             item['배달비_이미지_display'] = del_img
                             
