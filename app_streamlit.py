@@ -397,7 +397,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [수정] 영수증 PDF 생성 (화질 유지 + 격자선 + 꽉 차게 비율 조절)
+# 영수증 PDF 3x3 격자 생성 
 # ==========================================
 def generate_receipts_pdf(expense_items):
     receipt_imgs = []
@@ -553,6 +553,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         img = Image.open(f)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
+        # [정리] 불필요해진 토글 백업 상태들을 제거하여 코드 경량화
         st.session_state.expense_items.append({
             "id": str(uuid.uuid4()), 
             "종류": assigned_cat, 
@@ -561,8 +562,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "인식금액": safe_int(res.get("합계 금액")), 
             "배달비": 0, 
             "비고": "", 
-            "동석자_백업": "",
-            "증빙방식": "동석자 입력",
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -615,9 +614,6 @@ if st.session_state.expense_items:
         uid = item['id']
 
         with st.container(border=True):
-            if '동석자_백업' not in item: item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
-            if '증빙방식' not in item: item['증빙방식'] = "동석자 입력"
-
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
@@ -657,10 +653,7 @@ if st.session_state.expense_items:
             else:
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
-                if item.get('비고') == "배달비 증빙": item['비고'] = item.get('동석자_백업', '')
-                
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                item['동석자_백업'] = item['비고'] 
 
             with r1[6]:
                 with st.popover("🧾"): 
@@ -669,39 +662,33 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
+            # [핵심 변경] 토글 제거! 왼쪽은 비고/동석자, 오른쪽은 배달비 영수증을 나란히 배치
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
-                c_sub1, c_sub2 = st.columns([1.5, 5.5], vertical_alignment="center")
+                # 1:1 비율로 절반씩 나누어 배치
+                c_sub1, c_sub2 = st.columns([1, 1], vertical_alignment="center")
                 
                 with c_sub1:
-                    default_idx = 0 if item['증빙방식'] == "동석자 입력" else 1
-                    reason = st.radio("증빙방식", ["동석자 입력", "배달비 증빙"], index=default_idx, key=f"reason_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                    item['증빙방식'] = reason 
+                    item['비고'] = st.text_input("동석자 및 비고", value=item.get('비고', ''), placeholder="동석자 정보 (예: 홍길동, 김철수) 또는 비고 입력", key=f"note_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
                 
                 with c_sub2:
-                    if reason == "동석자 입력":
-                        item['동석자_백업'] = st.text_input("동석자 정보", value=item.get('동석자_백업', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                        item['비고'] = item['동석자_백업']
-                        item['배달비'] = 0
-                        item['배달비_이미지_display'] = None
+                    d1, d2 = st.columns([4, 1], vertical_alignment="center")
+                    
+                    del_file = d1.file_uploader("배달비 영수증 첨부", type=["png", "jpg", "jpeg"], key=f"del_file_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                    
+                    if del_file:
+                        del_img = Image.open(del_file)
+                        del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                        item['배달비_이미지_display'] = del_img
                     else:
-                        item['배달비'] = 0 
-                        d1, d2 = st.columns([4.5, 1], vertical_alignment="center")
+                        # 파일을 삭제(X버튼)하면 이미지도 깔끔하게 비움
+                        item['배달비_이미지_display'] = None
                         
-                        del_file = d1.file_uploader("배달비 영수증 첨부", type=["png", "jpg", "jpeg"], key=f"del_file_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                        
-                        if del_file:
-                            del_img = Image.open(del_file)
-                            del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
-                            item['배달비_이미지_display'] = del_img
-                            
-                        with d2:
-                            if item.get('배달비_이미지_display'):
-                                with st.popover("🧾"): 
-                                    st.image(item['배달비_이미지_display'], width=400)
-                        
-                        item['비고'] = "배달비 증빙"
+                    with d2:
+                        if item.get('배달비_이미지_display'):
+                            with st.popover("🧾"): 
+                                st.image(item['배달비_이미지_display'], width=400)
 
     st.write("")
     
