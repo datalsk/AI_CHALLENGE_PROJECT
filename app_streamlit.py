@@ -7,6 +7,7 @@ import json
 import io
 import time
 import calendar
+import uuid  # [핵심 추가] 고유 ID 발급을 위한 모듈
 from datetime import datetime
 from PIL import Image
 
@@ -232,14 +233,14 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
         del_img_url = "N/A"
         
         if item.get('image_display'):
-            img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}.png"
+            img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{item.get('id', idx)}.png"
             img_byte_arr = io.BytesIO()
             item['image_display'].save(img_byte_arr, format='PNG')
             s3_client.put_object(Bucket=s3_bucket, Key=img_key, Body=img_byte_arr.getvalue(), ContentType='image/png')
             img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{img_key}"
             
         if item.get('배달비_이미지_display'):
-            del_img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{idx}_delivery.png"
+            del_img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{item.get('id', idx)}_delivery.png"
             del_img_byte_arr = io.BytesIO()
             item['배달비_이미지_display'].save(del_img_byte_arr, format='PNG')
             s3_client.put_object(Bucket=s3_bucket, Key=del_img_key, Body=del_img_byte_arr.getvalue(), ContentType='image/png')
@@ -329,13 +330,14 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         img.thumbnail((500, 500))
         
         st.session_state.expense_items.append({
+            "id": str(uuid.uuid4()), # [핵심] 정렬되어도 변하지 않는 고유 ID 부여
             "종류": assigned_cat, 
             "결제일자": res.get("결제 날짜"), 
             "사용처": res.get("사용처"), 
             "인식금액": safe_int(res.get("합계 금액")), 
             "배달비": 0, 
             "비고": "", 
-            "동석자_백업": "", # [추가] 초기 백업 데이터 세팅
+            "동석자_백업": "",
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -384,9 +386,11 @@ if st.session_state.expense_items:
     current_proj_total = 0 
     
     for idx, item in enumerate(st.session_state.expense_items):
+        # 만약 예전 세션에서 켜둬서 id가 없다면 하나 만들어줌
+        if 'id' not in item: item['id'] = str(uuid.uuid4())
+        uid = item['id'] # [핵심] 이제 idx 대신 이 uid를 모든 위젯의 Key로 사용합니다!
+
         with st.container(border=True):
-            
-            # [핵심] 백업 데이터 초기화 로직: 이전 데이터가 있다면 살려냅니다.
             if '동석자_백업' not in item:
                 item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
 
@@ -395,10 +399,11 @@ if st.session_state.expense_items:
 
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['결제일자'] = r1[1].text_input(f"dt_{idx}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['사용처'] = r1[2].text_input(f"vn_{idx}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['인식금액'] = r1[3].number_input(f"am_{idx}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
+            # 모든 key에 {idx} 대신 {uid} 적용
+            item['종류'] = r1[0].selectbox(f"cat_{uid}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['결제일자'] = r1[1].text_input(f"dt_{uid}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['인식금액'] = r1[3].number_input(f"am_{uid}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
@@ -429,23 +434,24 @@ if st.session_state.expense_items:
             else:
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
-                # 배달비 증빙에서 넘어왔다면 백업된 텍스트를 복구합니다.
                 if item.get('비고') == "배달비 증빙": item['비고'] = item.get('동석자_백업', '')
                 
-                item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                item['동석자_백업'] = item['비고'] # 일반 비고란에서 쓴 내용도 백업해둠
+                item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                item['동석자_백업'] = item['비고'] 
 
             with r1[6]:
                 with st.popover("🧾"): 
                     st.image(item['image_display'], width=400)
-            if r1[7].button("🗑️", key=f"del_{idx}", disabled=st.session_state.submitted):
-                st.session_state.expense_items.pop(idx)
+                    
+            # 삭제도 uid 기반으로 완벽하게 격리
+            if r1[7].button("🗑️", key=f"del_{uid}", disabled=st.session_state.submitted):
+                st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
-                reason_key = f"reason_{idx}"
+                reason_key = f"reason_{uid}" # 여기도 uid로 고정
                 if reason_key not in st.session_state:
                     st.session_state[reason_key] = "동석자 입력"
                 
@@ -456,8 +462,7 @@ if st.session_state.expense_items:
                 
                 with c_sub2:
                     if reason == "동석자 입력":
-                        # [핵심] 입력된 동석자 정보를 '동석자_백업' 키에 저장하고 이를 불러옵니다.
-                        item['동석자_백업'] = st.text_input("동석자 정보", value=item.get('동석자_백업', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        item['동석자_백업'] = st.text_input("동석자 정보", value=item.get('동석자_백업', ''), placeholder="함께 식사한 인원 (예: 홍길동, 김철수)", key=f"note_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
                         item['비고'] = item['동석자_백업']
                         item['배달비'] = 0
                         item['배달비_이미지_display'] = None
@@ -465,7 +470,7 @@ if st.session_state.expense_items:
                         item['배달비'] = 0 
                         d1, d2 = st.columns([4.5, 1], vertical_alignment="center")
                         
-                        del_file = d1.file_uploader("배달비 영수증 첨부", type=["png", "jpg", "jpeg"], key=f"del_file_{idx}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                        del_file = d1.file_uploader("배달비 영수증 첨부", type=["png", "jpg", "jpeg"], key=f"del_file_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
                         
                         if del_file:
                             del_img = Image.open(del_file)
