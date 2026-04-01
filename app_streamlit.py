@@ -426,20 +426,16 @@ def generate_receipts_pdf(expense_items):
                 pages.append(current_page)
             current_page = Image.new('RGB', (A4_W, A4_H), 'white')
             
-            # [기능 유지] 격자선(Grid) 그리기
             draw = ImageDraw.Draw(current_page)
             line_width = 4
             line_color = "black"
             
-            # 전체 테두리
             draw.rectangle([MARGIN_X, MARGIN_Y, A4_W - MARGIN_X, A4_H - MARGIN_Y], outline=line_color, width=line_width)
             
-            # 2개의 세로선
             for col_line in range(1, COLS):
                 lx = MARGIN_X + col_line * CELL_W
                 draw.line([(lx, MARGIN_Y), (lx, A4_H - MARGIN_Y)], fill=line_color, width=line_width)
                 
-            # 2개의 가로선
             for row_line in range(1, ROWS):
                 ly = MARGIN_Y + row_line * CELL_H
                 draw.line([(MARGIN_X, ly), (A4_W - MARGIN_X, ly)], fill=line_color, width=line_width)
@@ -455,30 +451,21 @@ def generate_receipts_pdf(expense_items):
         if img_copy.mode != 'RGB':
             img_copy = img_copy.convert('RGB')
             
-        # [수정] 스마트 돋보기 (Scale-to-Fit) 로직 적용
-        # 격자선에 이미지가 겹치지 않도록 셀 크기보다 여백을 60픽셀 남깁니다.
         target_w = CELL_W - 60
         target_h = CELL_H - 60
         
-        # 이미지 비율 계산
         img_ratio = img_copy.width / img_copy.height
-        # 셀 비율 계산
         cell_ratio = target_w / target_h
         
-        # 비율에 따라 스마트 돋보기 적용
-        if img_ratio < cell_ratio: # 더 세로로 긴 경우 (이미지 비율 < 셀 비율)
-            # 세로 방향(CELL_H)에 맞춥니다.
+        if img_ratio < cell_ratio: 
             new_h = target_h
             new_w = int(new_h * img_ratio)
-        else: # 더 가로로 긴 경우 (이미지 비율 > 셀 비율)
-            # 가로 방향(CELL_W)에 맞춥니다.
+        else: 
             new_w = target_w
             new_h = int(new_w / img_ratio)
             
-        # 고화질 리사이징 (LANCZOS 필터)
         img_copy = img_copy.resize((new_w, new_h), Image.Resampling.LANCZOS)
         
-        # 칸의 정중앙에 배치하기 위한 오프셋 계산
         offset_x = x + (CELL_W - new_w) // 2
         offset_y = y + (CELL_H - new_h) // 2
         
@@ -563,7 +550,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
         res = analyze_receipt(f) 
         
-        # 화질 유지 설정 (최대 1500px)
         img = Image.open(f)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
@@ -707,7 +693,6 @@ if st.session_state.expense_items:
                         
                         if del_file:
                             del_img = Image.open(del_file)
-                            # 배달비 이미지 화질 유지 설정
                             del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
                             item['배달비_이미지_display'] = del_img
                             
@@ -750,7 +735,7 @@ if st.session_state.expense_items:
             except: pass
             
             st.download_button(
-                label="📥 엑셀 양식 다운로드",
+                label="엑셀 양식 다운로드",
                 data=excel_file,
                 file_name=f"{user_name}_경비지급신청서_{target_m}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -766,7 +751,7 @@ if st.session_state.expense_items:
             
             if pdf_file:
                 st.download_button(
-                    label="📄 영수증 모음(PDF) 다운로드",
+                    label="영수증 모음(PDF) 다운로드",
                     data=pdf_file,
                     file_name=f"{user_name}_증빙자료_{target_m}.pdf",
                     mime="application/pdf",
