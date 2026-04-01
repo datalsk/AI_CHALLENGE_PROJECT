@@ -249,7 +249,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [핵심] 엑셀 폼 생성 함수 추가
+# [핵심] 엑셀 폼 생성 함수 - 정렬 완벽 교정
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -266,16 +266,15 @@ def generate_excel_form(expense_items, user_name):
     # 1. 컬럼 너비 세팅
     ws.column_dimensions['A'].width = 12  # 일자
     ws.column_dimensions['B'].width = 25  # 사용처
-    ws.column_dimensions['C'].width = 20  # 사용내역
+    ws.column_dimensions['C'].width = 18  # 사용내역
     ws.column_dimensions['D'].width = 15  # 금액
-    ws.column_dimensions['E'].width = 30  # 비고
     
-    # 우측 결재란용 좁은 컬럼
-    for col in ['F', 'G', 'H', 'I', 'J']:
-        ws.column_dimensions[col].width = 10
-    ws.column_dimensions['F'].width = 4   # '결재' 글자용 
+    # [수정] 비고란(E열)을 5개의 열(E,F,G,H,I)로 분할하여 결재란과 너비를 완벽히 일치시킵니다.
+    ws.column_dimensions['E'].width = 4   # '결재' 세로 제목칸
+    for col in ['F', 'G', 'H', 'I']:
+        ws.column_dimensions[col].width = 8.5 # 담당, 팀장, 본부장, 관리부 칸
 
-    # 2. 타이틀 (월 자동 추출)
+    # 2. 타이틀
     target_month = datetime.now().strftime("%m")
     if expense_items and expense_items[0].get("결제일자"):
         try: target_month = expense_items[0]["결제일자"].split("-")[1]
@@ -286,33 +285,30 @@ def generate_excel_form(expense_items, user_name):
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
-    # 3. 우측 결재란 생성 (F1:J3)
+    # 3. 우측 결재란 생성 (E1:I3에 쏙 들어가게 배치)
     approvers = ["담당", "팀장", "본부장", "관리부"]
     
-    ws.merge_cells('F1:F3')
-    ws['F1'] = "결\n\n재"
-    ws['F1'].alignment = align_center
-    ws['F1'].border = border_thin
+    ws.merge_cells('E1:E3')
+    ws['E1'] = "결\n\n재"
+    ws['E1'].alignment = align_center
+    ws['E1'].border = border_thin
     
     for idx, approver in enumerate(approvers):
-        col_letter = chr(ord('G') + idx)
+        col_letter = chr(ord('F') + idx) # F, G, H, I열
         
         ws[f'{col_letter}1'] = approver
         ws[f'{col_letter}1'].alignment = align_center
         ws[f'{col_letter}1'].border = border_thin
         
-        ws[f'{col_letter}2'] = "" # 도장/서명 공간
+        ws[f'{col_letter}2'] = "" 
         ws[f'{col_letter}2'].border = border_thin
         
-        ws[f'{col_letter}3'] = "   /   " # 날짜
+        ws[f'{col_letter}3'] = "   /   " 
         ws[f'{col_letter}3'].alignment = align_center
         ws[f'{col_letter}3'].border = border_thin
-        
-    ws['F2'].border = border_thin
-    ws['F3'].border = border_thin
 
-    # 4. 사용자 텍스트
-    ws.merge_cells('A5:E5')
+    # 4. 사용자 텍스트 (A5:I5를 모두 합쳐서 우측 끝까지 일치시킴)
+    ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name if user_name else '          '}"
     ws['A5'].font = font_bold
     ws['A5'].alignment = align_left
@@ -326,19 +322,33 @@ def generate_excel_form(expense_items, user_name):
     ws['C7'].alignment = align_center
     ws['C7'].font = font_bold
     
+    ws.merge_cells('E7:I7') # 금액칸을 E~I까지 합쳐서 우측 정렬
     ws['E7'] = f"{total_amt:,} 원정"
     ws['E7'].border = border_thin
     ws['E7'].alignment = align_right
     ws['E7'].font = font_bold
+    
+    for col_num in range(5, 10): 
+        ws.cell(row=7, column=col_num).border = border_thin
 
     # 6. 테이블 헤더
-    headers = ["일 자", "사 용 처", "사 용 내 역", "금 액", "비 고 (slack 퇴근시간 등)"]
+    headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=9, column=col_num, value=header)
         cell.font = font_bold
         cell.alignment = align_center
         cell.border = border_thin
         cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        
+    # 비고란 헤더도 E~I 병합
+    ws.merge_cells('E9:I9')
+    cell = ws['E9']
+    cell.value = "비 고 (slack 퇴근시간 등)"
+    cell.font = font_bold
+    cell.alignment = align_center
+    cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    for col_num in range(5, 10):
+        ws.cell(row=9, column=col_num).border = border_thin
 
     # 7. 테이블 데이터 삽입
     current_row = 10
@@ -347,15 +357,19 @@ def generate_excel_form(expense_items, user_name):
         ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
         ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
         ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0)).alignment = align_right
+        
+        # 비고란 데이터 E~I 병합
+        ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
         
-        for col_num in range(1, 6):
+        for col_num in range(1, 10):
             ws.cell(row=current_row, column=col_num).border = border_thin
         current_row += 1
 
-    # 빈 줄 채우기 (최소 10줄 유지로 폼 형태 보존)
+    # 빈 줄 채우기 (최소 10줄)
     while current_row <= 22:
-        for col_num in range(1, 6):
+        ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
+        for col_num in range(1, 10):
             ws.cell(row=current_row, column=col_num).border = border_thin
         current_row += 1
 
@@ -365,23 +379,23 @@ def generate_excel_form(expense_items, user_name):
     ws.cell(row=current_row, column=1).font = font_bold
     ws.cell(row=current_row, column=4, value=total_amt).alignment = align_right
     ws.cell(row=current_row, column=4).font = font_bold
+    
+    ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
     ws.cell(row=current_row, column=5, value="-").alignment = align_center
     
-    for col_num in range(1, 6):
+    for col_num in range(1, 10):
         ws.cell(row=current_row, column=col_num).border = border_thin
-        if col_num in [2, 3]: ws.cell(row=current_row, column=col_num).border = border_thin
 
-    # 9. 서명 및 날짜
+    # 9. 서명 및 날짜 (전체 너비 A~I 맞춤)
     current_row += 2
-    ws.merge_cells(f'A{current_row}:E{current_row}')
+    ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
     
     current_row += 2
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
-    ws.merge_cells(f'A{current_row}:E{current_row}')
+    ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
 
-    # 10. 파일로 변환하여 리턴
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -611,9 +625,6 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    # ==========================================
-    # [핵심] 하단 버튼 영역 (제출 / 엑셀 다운로드)
-    # ==========================================
     col_submit, col_download = st.columns(2)
     
     with col_submit:
@@ -637,7 +648,6 @@ if st.session_state.expense_items:
                 st.rerun()
                 
     with col_download:
-        # 입력된 데이터가 있을 때만 엑셀 생성 및 다운로드 버튼 노출
         if st.session_state.expense_items:
             excel_file = generate_excel_form(st.session_state.expense_items, user_name)
             
