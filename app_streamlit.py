@@ -553,7 +553,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         img = Image.open(f)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
-        # [정리] 불필요해진 토글 백업 상태들을 제거하여 코드 경량화
         st.session_state.expense_items.append({
             "id": str(uuid.uuid4()), 
             "종류": assigned_cat, 
@@ -562,6 +561,8 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "인식금액": safe_int(res.get("합계 금액")), 
             "배달비": 0, 
             "비고": "", 
+            "동석자_백업": "",
+            "증빙방식": "동석자 입력",
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -614,6 +615,9 @@ if st.session_state.expense_items:
         uid = item['id']
 
         with st.container(border=True):
+            if '동석자_백업' not in item: item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
+            if '증빙방식' not in item: item['증빙방식'] = "동석자 입력"
+
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
@@ -627,6 +631,7 @@ if st.session_state.expense_items:
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
             
+            # [핵심 추가] 절사된 차액을 명확하게 보여주기 위한 변수 (cut_amt) 적용
             if item['종류'] == "프로젝트비용":
                 if limit == 0:
                     effective_cost = 0
@@ -637,7 +642,8 @@ if st.session_state.expense_items:
                 elif current_proj_total + input_cost > limit:
                     effective_cost = limit - current_proj_total
                     current_proj_total = limit
-                    status_html = f"{base_html}<span style='font-size:14px; font-weight:600;'>{effective_cost:,} 원</span><span style='color:#f59e0b; font-size:10px; font-weight:600;'>절사됨({input_cost:,})</span></div>"
+                    cut_amt = input_cost - effective_cost
+                    status_html = f"{base_html}<span style='font-size:14px; font-weight:600;'>{effective_cost:,} 원</span><span style='color:#ef4444; font-size:10px; font-weight:600;'>-{cut_amt:,}원 절사</span></div>"
                 else:
                     effective_cost = input_cost
                     current_proj_total += effective_cost
@@ -653,7 +659,10 @@ if st.session_state.expense_items:
             else:
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
+                if item.get('비고') == "배달비 증빙": item['비고'] = item.get('동석자_백업', '')
+                
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                item['동석자_백업'] = item['비고'] 
 
             with r1[6]:
                 with st.popover("🧾"): 
@@ -662,11 +671,9 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
-            # [핵심 변경] 토글 제거! 왼쪽은 비고/동석자, 오른쪽은 배달비 영수증을 나란히 배치
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
-                # 1:1 비율로 절반씩 나누어 배치
                 c_sub1, c_sub2 = st.columns([1, 1], vertical_alignment="center")
                 
                 with c_sub1:
@@ -682,7 +689,6 @@ if st.session_state.expense_items:
                         del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
                         item['배달비_이미지_display'] = del_img
                     else:
-                        # 파일을 삭제(X버튼)하면 이미지도 깔끔하게 비움
                         item['배달비_이미지_display'] = None
                         
                     with d2:
