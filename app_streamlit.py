@@ -8,6 +8,8 @@ import io
 import time
 import calendar
 import uuid
+import openpyxl
+from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from datetime import datetime
 from PIL import Image
 
@@ -28,11 +30,9 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
-    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
-    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -43,12 +43,8 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 기본 컬럼 갭 축소 */
-    [data-testid="column"] > div {
-        gap: 0.3rem !important;
-    }
+    [data-testid="column"] > div { gap: 0.3rem !important; }
     
-    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -63,7 +59,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
@@ -85,7 +80,6 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -100,7 +94,6 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
     
-    /* 일반 텍스트 입력창 여백 */
     div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
@@ -110,7 +103,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -120,7 +112,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -258,6 +249,145 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
+# [핵심] 엑셀 폼 생성 함수 추가
+# ==========================================
+def generate_excel_form(expense_items, user_name):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "경비지급신청서"
+
+    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    align_left = Alignment(horizontal='left', vertical='center')
+    align_right = Alignment(horizontal='right', vertical='center')
+    font_bold = Font(bold=True)
+    font_title = Font(name='맑은 고딕', size=16, bold=True)
+
+    # 1. 컬럼 너비 세팅
+    ws.column_dimensions['A'].width = 12  # 일자
+    ws.column_dimensions['B'].width = 25  # 사용처
+    ws.column_dimensions['C'].width = 20  # 사용내역
+    ws.column_dimensions['D'].width = 15  # 금액
+    ws.column_dimensions['E'].width = 30  # 비고
+    
+    # 우측 결재란용 좁은 컬럼
+    for col in ['F', 'G', 'H', 'I', 'J']:
+        ws.column_dimensions[col].width = 10
+    ws.column_dimensions['F'].width = 4   # '결재' 글자용 
+
+    # 2. 타이틀 (월 자동 추출)
+    target_month = datetime.now().strftime("%m")
+    if expense_items and expense_items[0].get("결제일자"):
+        try: target_month = expense_items[0]["결제일자"].split("-")[1]
+        except: pass
+
+    ws.merge_cells('A1:D3')
+    ws['A1'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
+    ws['A1'].font = font_title
+    ws['A1'].alignment = align_left
+
+    # 3. 우측 결재란 생성 (F1:J3)
+    approvers = ["담당", "팀장", "본부장", "관리부"]
+    
+    ws.merge_cells('F1:F3')
+    ws['F1'] = "결\n\n재"
+    ws['F1'].alignment = align_center
+    ws['F1'].border = border_thin
+    
+    for idx, approver in enumerate(approvers):
+        col_letter = chr(ord('G') + idx)
+        
+        ws[f'{col_letter}1'] = approver
+        ws[f'{col_letter}1'].alignment = align_center
+        ws[f'{col_letter}1'].border = border_thin
+        
+        ws[f'{col_letter}2'] = "" # 도장/서명 공간
+        ws[f'{col_letter}2'].border = border_thin
+        
+        ws[f'{col_letter}3'] = "   /   " # 날짜
+        ws[f'{col_letter}3'].alignment = align_center
+        ws[f'{col_letter}3'].border = border_thin
+        
+    ws['F2'].border = border_thin
+    ws['F3'].border = border_thin
+
+    # 4. 사용자 텍스트
+    ws.merge_cells('A5:E5')
+    ws['A5'] = f"사용자 : {user_name if user_name else '          '}"
+    ws['A5'].font = font_bold
+    ws['A5'].alignment = align_left
+
+    # 5. 청구액 란
+    total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
+    
+    ws.merge_cells('C7:D7')
+    ws['C7'] = "청 구 액"
+    ws['C7'].border = border_thin
+    ws['C7'].alignment = align_center
+    ws['C7'].font = font_bold
+    
+    ws['E7'] = f"{total_amt:,} 원정"
+    ws['E7'].border = border_thin
+    ws['E7'].alignment = align_right
+    ws['E7'].font = font_bold
+
+    # 6. 테이블 헤더
+    headers = ["일 자", "사 용 처", "사 용 내 역", "금 액", "비 고 (slack 퇴근시간 등)"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=9, column=col_num, value=header)
+        cell.font = font_bold
+        cell.alignment = align_center
+        cell.border = border_thin
+        cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+
+    # 7. 테이블 데이터 삽입
+    current_row = 10
+    for item in expense_items:
+        ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
+        ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
+        ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
+        ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0)).alignment = align_right
+        ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
+        
+        for col_num in range(1, 6):
+            ws.cell(row=current_row, column=col_num).border = border_thin
+        current_row += 1
+
+    # 빈 줄 채우기 (최소 10줄 유지로 폼 형태 보존)
+    while current_row <= 22:
+        for col_num in range(1, 6):
+            ws.cell(row=current_row, column=col_num).border = border_thin
+        current_row += 1
+
+    # 8. 푸터 (합계)
+    ws.merge_cells(f'A{current_row}:C{current_row}')
+    ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
+    ws.cell(row=current_row, column=1).font = font_bold
+    ws.cell(row=current_row, column=4, value=total_amt).alignment = align_right
+    ws.cell(row=current_row, column=4).font = font_bold
+    ws.cell(row=current_row, column=5, value="-").alignment = align_center
+    
+    for col_num in range(1, 6):
+        ws.cell(row=current_row, column=col_num).border = border_thin
+        if col_num in [2, 3]: ws.cell(row=current_row, column=col_num).border = border_thin
+
+    # 9. 서명 및 날짜
+    current_row += 2
+    ws.merge_cells(f'A{current_row}:E{current_row}')
+    ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
+    
+    current_row += 2
+    today_str = datetime.now().strftime("%Y년 %m월 %d일")
+    ws.merge_cells(f'A{current_row}:E{current_row}')
+    ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
+
+    # 10. 파일로 변환하여 리턴
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+# ==========================================
 # 2. 메인 UI 및 사이드바 로직
 # ==========================================
 st.title("경비 정산")
@@ -329,7 +459,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         img = Image.open(f)
         img.thumbnail((500, 500))
         
-        # [핵심] 생성 시점부터 라디오버튼의 상태('증빙방식')를 백업해둡니다.
         st.session_state.expense_items.append({
             "id": str(uuid.uuid4()), 
             "종류": assigned_cat, 
@@ -339,7 +468,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "배달비": 0, 
             "비고": "", 
             "동석자_백업": "",
-            "증빙방식": "동석자 입력", # 라디오 버튼 상태 기억용
+            "증빙방식": "동석자 입력",
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -446,17 +575,15 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
-            # 야근식대 15,000원 이상 특수 증빙란
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
                 c_sub1, c_sub2 = st.columns([1.5, 5.5], vertical_alignment="center")
                 
                 with c_sub1:
-                    # [핵심 방어] Streamlit 메모리가 날아가도, 아이템(item)에 백업해둔 상태를 불러와서 세팅합니다.
                     default_idx = 0 if item['증빙방식'] == "동석자 입력" else 1
                     reason = st.radio("증빙방식", ["동석자 입력", "배달비 증빙"], index=default_idx, key=f"reason_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                    item['증빙방식'] = reason # 상태 백업
+                    item['증빙방식'] = reason 
                 
                 with c_sub2:
                     if reason == "동석자 입력":
@@ -483,21 +610,45 @@ if st.session_state.expense_items:
                         item['비고'] = "배달비 증빙"
 
     st.write("")
-    if not st.session_state.submitted:
-        if st.button("최종 제출하기", type="primary", use_container_width=True):
-            if not user_name: st.error("제출자 이름을 확인해주세요.", icon="🚨")
-            elif project_type == "기간 선택" and max_project_cost == 0:
-                st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
-            else:
-                with st.spinner("서버에 데이터를 등록하고 있습니다..."):
-                    if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
-                        st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
-                        st.session_state.submitted = True 
-                        time.sleep(1) 
-                        st.rerun()
-    else:
-        if st.button("새 정산 작성하기", use_container_width=True):
-            st.session_state.expense_items = []
-            st.session_state.submitted = False
-            st.session_state.uploader_key += 1
-            st.rerun()
+    
+    # ==========================================
+    # [핵심] 하단 버튼 영역 (제출 / 엑셀 다운로드)
+    # ==========================================
+    col_submit, col_download = st.columns(2)
+    
+    with col_submit:
+        if not st.session_state.submitted:
+            if st.button("최종 제출하기", type="primary", use_container_width=True):
+                if not user_name: st.error("제출자 이름을 확인해주세요.", icon="🚨")
+                elif project_type == "기간 선택" and max_project_cost == 0:
+                    st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
+                else:
+                    with st.spinner("서버에 데이터를 등록하고 있습니다..."):
+                        if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
+                            st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
+                            st.session_state.submitted = True 
+                            time.sleep(1) 
+                            st.rerun()
+        else:
+            if st.button("새 정산 작성하기", use_container_width=True):
+                st.session_state.expense_items = []
+                st.session_state.submitted = False
+                st.session_state.uploader_key += 1
+                st.rerun()
+                
+    with col_download:
+        # 입력된 데이터가 있을 때만 엑셀 생성 및 다운로드 버튼 노출
+        if st.session_state.expense_items:
+            excel_file = generate_excel_form(st.session_state.expense_items, user_name)
+            
+            target_m = datetime.now().strftime("%Y%m")
+            try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
+            except: pass
+            
+            st.download_button(
+                label="📥 엑셀 양식 다운로드",
+                data=excel_file,
+                file_name=f"{user_name}_경비지급신청서_{target_m}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
