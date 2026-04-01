@@ -4,3 +4,4 @@ boto3
 openai
 pillow
 requests
+openpyxl
