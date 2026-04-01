@@ -11,7 +11,7 @@ import uuid
 import openpyxl
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # ==========================================
 # 0. UI 설정 및 컴팩트 SaaS 디자인 CSS 적용
@@ -30,9 +30,11 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
+    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
+    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -43,8 +45,12 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    [data-testid="column"] > div { gap: 0.3rem !important; }
+    /* 기본 컬럼 갭 축소 */
+    [data-testid="column"] > div {
+        gap: 0.3rem !important;
+    }
     
+    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -59,6 +65,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
+    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
@@ -80,6 +87,7 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
+    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -94,6 +102,7 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
     
+    /* 일반 텍스트 입력창 여백 */
     div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
@@ -103,6 +112,7 @@ st.markdown("""
         font-size: 14px !important;
     }
     
+    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -112,6 +122,7 @@ st.markdown("""
         font-size: 14px !important;
     }
     
+    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -386,7 +397,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [수정] 영수증 PDF 생성 (화질 유지 + 꽉 차게 비율 조절)
+# [추가/핵심] 영수증 PDF 3x3 격자선 그리기 및 자동 크기 조절
 # ==========================================
 def generate_receipts_pdf(expense_items):
     receipt_imgs = []
@@ -414,6 +425,24 @@ def generate_receipts_pdf(expense_items):
             if current_page:
                 pages.append(current_page)
             current_page = Image.new('RGB', (A4_W, A4_H), 'white')
+            
+            # [새로운 기능] 표 형태의 명시적인 검은색 격자선(Grid)을 A4 용지에 그립니다.
+            draw = ImageDraw.Draw(current_page)
+            line_width = 4
+            line_color = "black"
+            
+            # 전체 테두리
+            draw.rectangle([MARGIN_X, MARGIN_Y, A4_W - MARGIN_X, A4_H - MARGIN_Y], outline=line_color, width=line_width)
+            
+            # 2개의 세로선
+            for col_line in range(1, COLS):
+                lx = MARGIN_X + col_line * CELL_W
+                draw.line([(lx, MARGIN_Y), (lx, A4_H - MARGIN_Y)], fill=line_color, width=line_width)
+                
+            # 2개의 가로선
+            for row_line in range(1, ROWS):
+                ly = MARGIN_Y + row_line * CELL_H
+                draw.line([(MARGIN_X, ly), (A4_W - MARGIN_X, ly)], fill=line_color, width=line_width)
         
         idx_on_page = i % 9
         col = idx_on_page % COLS
@@ -426,15 +455,14 @@ def generate_receipts_pdf(expense_items):
         if img_copy.mode != 'RGB':
             img_copy = img_copy.convert('RGB')
             
-        # [핵심] CELL 크기에 맞게 가로/세로 비율을 완벽히 유지하며 꽉 차게 자동 확대/축소
-        target_w = CELL_W - 40
-        target_h = CELL_H - 40
+        # 격자선에 이미지가 겹치지 않도록 셀 크기보다 여백을 60픽셀 남깁니다.
+        target_w = CELL_W - 60
+        target_h = CELL_H - 60
         
         ratio = min(target_w / img_copy.width, target_h / img_copy.height)
         new_w = int(img_copy.width * ratio)
         new_h = int(img_copy.height * ratio)
         
-        # 고화질 리사이징 (LANCZOS 필터)
         img_copy = img_copy.resize((new_w, new_h), Image.Resampling.LANCZOS)
         
         offset_x = x + (CELL_W - new_w) // 2
@@ -521,7 +549,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
         res = analyze_receipt(f) 
         
-        # [핵심 변경] 화질 저하 방지! 500픽셀 제한을 해제하고 고화질(최대 1500)로 보존합니다.
         img = Image.open(f)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
@@ -665,7 +692,6 @@ if st.session_state.expense_items:
                         
                         if del_file:
                             del_img = Image.open(del_file)
-                            # [핵심 변경] 배달비 이미지도 고화질 보존
                             del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
                             item['배달비_이미지_display'] = del_img
                             
