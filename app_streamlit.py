@@ -7,7 +7,7 @@ import json
 import io
 import time
 import calendar
-import uuid  # [핵심 추가] 고유 ID 발급을 위한 모듈
+import uuid
 from datetime import datetime
 from PIL import Image
 
@@ -329,8 +329,9 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         img = Image.open(f)
         img.thumbnail((500, 500))
         
+        # [핵심] 생성 시점부터 라디오버튼의 상태('증빙방식')를 백업해둡니다.
         st.session_state.expense_items.append({
-            "id": str(uuid.uuid4()), # [핵심] 정렬되어도 변하지 않는 고유 ID 부여
+            "id": str(uuid.uuid4()), 
             "종류": assigned_cat, 
             "결제일자": res.get("결제 날짜"), 
             "사용처": res.get("사용처"), 
@@ -338,6 +339,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "배달비": 0, 
             "비고": "", 
             "동석자_백업": "",
+            "증빙방식": "동석자 입력", # 라디오 버튼 상태 기억용
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -386,20 +388,18 @@ if st.session_state.expense_items:
     current_proj_total = 0 
     
     for idx, item in enumerate(st.session_state.expense_items):
-        # 만약 예전 세션에서 켜둬서 id가 없다면 하나 만들어줌
         if 'id' not in item: item['id'] = str(uuid.uuid4())
-        uid = item['id'] # [핵심] 이제 idx 대신 이 uid를 모든 위젯의 Key로 사용합니다!
+        uid = item['id']
 
         with st.container(border=True):
-            if '동석자_백업' not in item:
-                item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
+            if '동석자_백업' not in item: item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
+            if '증빙방식' not in item: item['증빙방식'] = "동석자 입력"
 
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            # 모든 key에 {idx} 대신 {uid} 적용
             item['종류'] = r1[0].selectbox(f"cat_{uid}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{uid}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
@@ -442,23 +442,21 @@ if st.session_state.expense_items:
             with r1[6]:
                 with st.popover("🧾"): 
                     st.image(item['image_display'], width=400)
-                    
-            # 삭제도 uid 기반으로 완벽하게 격리
             if r1[7].button("🗑️", key=f"del_{uid}", disabled=st.session_state.submitted):
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
+            # 야근식대 15,000원 이상 특수 증빙란
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
-                
-                reason_key = f"reason_{uid}" # 여기도 uid로 고정
-                if reason_key not in st.session_state:
-                    st.session_state[reason_key] = "동석자 입력"
                 
                 c_sub1, c_sub2 = st.columns([1.5, 5.5], vertical_alignment="center")
                 
                 with c_sub1:
-                    reason = st.radio("증빙방식", ["동석자 입력", "배달비 증빙"], key=reason_key, label_visibility="collapsed", disabled=st.session_state.submitted)
+                    # [핵심 방어] Streamlit 메모리가 날아가도, 아이템(item)에 백업해둔 상태를 불러와서 세팅합니다.
+                    default_idx = 0 if item['증빙방식'] == "동석자 입력" else 1
+                    reason = st.radio("증빙방식", ["동석자 입력", "배달비 증빙"], index=default_idx, key=f"reason_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
+                    item['증빙방식'] = reason # 상태 백업
                 
                 with c_sub2:
                     if reason == "동석자 입력":
