@@ -30,11 +30,9 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
-    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
-    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -45,12 +43,8 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 기본 컬럼 갭 축소 */
-    [data-testid="column"] > div {
-        gap: 0.3rem !important;
-    }
+    [data-testid="column"] > div { gap: 0.3rem !important; }
     
-    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -65,7 +59,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
@@ -87,7 +80,6 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -102,7 +94,6 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
     
-    /* 일반 텍스트 입력창 여백 */
     div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
@@ -112,7 +103,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -122,7 +112,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -260,7 +249,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [핵심] 엑셀 폼 생성 함수 - 테두리 및 인쇄 설정 완벽 교정
+# [엑셀] 폼 생성 함수
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -274,32 +263,27 @@ def generate_excel_form(expense_items, user_name):
     font_bold = Font(bold=True)
     font_title = Font(name='맑은 고딕', size=16, bold=True)
 
-    # 병합된 셀 내부까지 테두리를 모두 칠해주는 방어 코드
     def apply_border_to_range(range_string):
         for row in ws[range_string]:
             for cell in row:
                 cell.border = border_thin
 
-    # 1. 인쇄 설정 (A4 가로 딱 맞춤, 여백 최소화)
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToPage = True
-    ws.page_setup.fitToWidth = 1   # 너비를 무조건 1페이지에 맞춤
-    ws.page_setup.fitToHeight = 0  # 높이는 내용에 따라 자동
+    ws.page_setup.fitToWidth = 1   
+    ws.page_setup.fitToHeight = 0  
     ws.print_options.horizontalCentered = True
-    
     ws.page_margins.left = 0.3
     ws.page_margins.right = 0.3
 
-    # 2. 컬럼 너비 세팅 (A4 비율 최적화)
-    ws.column_dimensions['A'].width = 12  # 일자
-    ws.column_dimensions['B'].width = 22  # 사용처
-    ws.column_dimensions['C'].width = 16  # 사용내역
-    ws.column_dimensions['D'].width = 13  # 금액
-    ws.column_dimensions['E'].width = 4   # '결재' 세로 제목칸
+    ws.column_dimensions['A'].width = 12  
+    ws.column_dimensions['B'].width = 22  
+    ws.column_dimensions['C'].width = 16  
+    ws.column_dimensions['D'].width = 13  
+    ws.column_dimensions['E'].width = 4   
     for col in ['F', 'G', 'H', 'I']:
-        ws.column_dimensions[col].width = 8 # 담당, 팀장, 본부장, 관리부 칸
+        ws.column_dimensions[col].width = 8 
 
-    # 3. 타이틀
     target_month = datetime.now().strftime("%m")
     if expense_items and expense_items[0].get("결제일자"):
         try: target_month = expense_items[0]["결제일자"].split("-")[1]
@@ -310,48 +294,40 @@ def generate_excel_form(expense_items, user_name):
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
-    # 4. 우측 결재란 생성
     approvers = ["담당", "팀장", "본부장", "관리부"]
-    
     ws.merge_cells('E1:E3')
     ws['E1'] = "결\n\n재"
     ws['E1'].alignment = align_center
-    apply_border_to_range('E1:E3') # E1~E3 전체 테두리
+    apply_border_to_range('E1:E3') 
     
     for idx, approver in enumerate(approvers):
-        col_letter = chr(ord('F') + idx) # F, G, H, I열
-        
+        col_letter = chr(ord('F') + idx) 
         ws[f'{col_letter}1'] = approver
         ws[f'{col_letter}1'].alignment = align_center
-        
         ws[f'{col_letter}2'] = "" 
-        
         ws[f'{col_letter}3'] = "   /   " 
         ws[f'{col_letter}3'].alignment = align_center
-        apply_border_to_range(f'{col_letter}1:{col_letter}3') # 각 칸 전체 테두리
+        apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
-    # 5. 사용자 텍스트
     ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name if user_name else '          '}"
     ws['A5'].font = font_bold
     ws['A5'].alignment = align_left
 
-    # 6. 청구액 란
     total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
     
     ws.merge_cells('C7:D7')
     ws['C7'] = "청 구 액"
     ws['C7'].alignment = align_center
     ws['C7'].font = font_bold
-    apply_border_to_range('C7:D7') # C7~D7 전체 테두리
+    apply_border_to_range('C7:D7') 
     
     ws.merge_cells('E7:I7') 
     ws['E7'] = f"{total_amt:,} 원정"
     ws['E7'].alignment = align_right
     ws['E7'].font = font_bold
-    apply_border_to_range('E7:I7') # E7~I7 전체 테두리
+    apply_border_to_range('E7:I7') 
 
-    # 7. 테이블 헤더
     headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=9, column=col_num, value=header)
@@ -367,7 +343,6 @@ def generate_excel_form(expense_items, user_name):
     ws['E9'].fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     apply_border_to_range('E9:I9')
 
-    # 8. 테이블 데이터 삽입
     current_row = 10
     for item in expense_items:
         ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
@@ -378,29 +353,24 @@ def generate_excel_form(expense_items, user_name):
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
         
-        apply_border_to_range(f'A{current_row}:I{current_row}') # A열~I열 행 전체 테두리 방어
+        apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
 
-    # 빈 줄 채우기 (최소 10줄 유지)
     while current_row <= 22:
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         apply_border_to_range(f'A{current_row}:I{current_row}')
         current_row += 1
 
-    # 9. 푸터 (합계)
     ws.merge_cells(f'A{current_row}:C{current_row}')
     ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
     ws.cell(row=current_row, column=1).font = font_bold
-    
     ws.cell(row=current_row, column=4, value=total_amt).alignment = align_right
     ws.cell(row=current_row, column=4).font = font_bold
     
     ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
     ws.cell(row=current_row, column=5, value="-").alignment = align_center
-    
     apply_border_to_range(f'A{current_row}:I{current_row}')
 
-    # 10. 서명 및 날짜 
     current_row += 2
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
@@ -412,6 +382,69 @@ def generate_excel_form(expense_items, user_name):
 
     output = io.BytesIO()
     wb.save(output)
+    output.seek(0)
+    return output
+
+# ==========================================
+# [추가] 영수증 PDF 4x4 그리드 생성 함수
+# ==========================================
+def generate_receipts_pdf(expense_items):
+    # 등록된 모든 이미지(메인 + 배달비) 추출
+    receipt_imgs = []
+    for item in expense_items:
+        if item.get('image_display'):
+            receipt_imgs.append(item['image_display'])
+        if item.get('배달비_이미지_display'):
+            receipt_imgs.append(item['배달비_이미지_display'])
+
+    if not receipt_imgs:
+        return None
+
+    # A4 사이즈 세팅 (300dpi 기준)
+    A4_W, A4_H = 2480, 3508
+    COLS, ROWS = 4, 4
+    MARGIN_X, MARGIN_Y = 100, 100
+    
+    # 1개 셀의 할당 공간
+    CELL_W = (A4_W - MARGIN_X * 2) // COLS
+    CELL_H = (A4_H - MARGIN_Y * 2) // ROWS
+
+    pages = []
+    current_page = None
+    
+    for i, img in enumerate(receipt_imgs):
+        if i % 16 == 0: # 16장마다 새 페이지 생성
+            if current_page:
+                pages.append(current_page)
+            current_page = Image.new('RGB', (A4_W, A4_H), 'white')
+        
+        idx_on_page = i % 16
+        col = idx_on_page % COLS
+        row = idx_on_page // COLS
+        
+        # 그리드 상의 시작 좌표
+        x = MARGIN_X + col * CELL_W
+        y = MARGIN_Y + row * CELL_H
+        
+        # 이미지 리사이즈 (셀보다 약간 작게 여백을 줌)
+        img_copy = img.copy()
+        if img_copy.mode != 'RGB':
+            img_copy = img_copy.convert('RGB') # PDF 저장을 위한 RGB 변환
+            
+        img_copy.thumbnail((CELL_W - 40, CELL_H - 40))
+        
+        # 셀 정중앙에 배치하기 위한 오프셋 계산
+        offset_x = x + (CELL_W - img_copy.width) // 2
+        offset_y = y + (CELL_H - img_copy.height) // 2
+        
+        current_page.paste(img_copy, (offset_x, offset_y))
+        
+    if current_page:
+        pages.append(current_page)
+
+    output = io.BytesIO()
+    if len(pages) > 0:
+        pages[0].save(output, format='PDF', save_all=True, append_images=pages[1:])
     output.seek(0)
     return output
 
@@ -639,7 +672,10 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    col_submit, col_download = st.columns(2)
+    # ==========================================
+    # [수정] 3열 버튼 배치 (제출 / 엑셀 / PDF)
+    # ==========================================
+    col_submit, col_excel, col_pdf = st.columns([1.2, 1, 1])
     
     with col_submit:
         if not st.session_state.submitted:
@@ -661,10 +697,9 @@ if st.session_state.expense_items:
                 st.session_state.uploader_key += 1
                 st.rerun()
                 
-    with col_download:
+    with col_excel:
         if st.session_state.expense_items:
             excel_file = generate_excel_form(st.session_state.expense_items, user_name)
-            
             target_m = datetime.now().strftime("%Y%m")
             try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
             except: pass
@@ -676,3 +711,20 @@ if st.session_state.expense_items:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+            
+    with col_pdf:
+        # [추가] PDF 다운로드 버튼 로직
+        if st.session_state.expense_items:
+            pdf_file = generate_receipts_pdf(st.session_state.expense_items)
+            target_m = datetime.now().strftime("%Y%m")
+            try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
+            except: pass
+            
+            if pdf_file:
+                st.download_button(
+                    label="📄 영수증 모음(PDF) 다운로드",
+                    data=pdf_file,
+                    file_name=f"{user_name}_증빙자료_{target_m}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
