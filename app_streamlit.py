@@ -260,9 +260,9 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수
+# [엑셀] 폼 생성 함수 - 사용자명 및 소속팀 추가
 # ==========================================
-def generate_excel_form(expense_items, user_name):
+def generate_excel_form(expense_items, user_name, team_name): # [추가] team_name 파라미터 추가
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "경비지급신청서"
@@ -320,8 +320,12 @@ def generate_excel_form(expense_items, user_name):
         ws[f'{col_letter}3'].alignment = align_center
         apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
+    # [핵심] 사용자 이름과 소속팀을 함께 표기합니다.
     ws.merge_cells('A5:I5')
-    ws['A5'] = f"사용자 : {user_name if user_name else '          '}"
+    if user_name:
+        ws['A5'] = f"사용자 :  {user_name}  ({team_name})"
+    else:
+        ws['A5'] = "사용자 : "
     ws['A5'].font = font_bold
     ws['A5'].alignment = align_left
 
@@ -631,7 +635,6 @@ if st.session_state.expense_items:
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
             
-            # [핵심 추가] 절사된 차액을 명확하게 보여주기 위한 변수 (cut_amt) 적용
             if item['종류'] == "프로젝트비용":
                 if limit == 0:
                     effective_cost = 0
@@ -659,10 +662,7 @@ if st.session_state.expense_items:
             else:
                 item['배달비'] = 0
                 item['배달비_이미지_display'] = None
-                if item.get('비고') == "배달비 증빙": item['비고'] = item.get('동석자_백업', '')
-                
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                item['동석자_백업'] = item['비고'] 
 
             with r1[6]:
                 with st.popover("🧾"): 
@@ -722,7 +722,8 @@ if st.session_state.expense_items:
                 
     with col_excel:
         if st.session_state.expense_items:
-            excel_file = generate_excel_form(st.session_state.expense_items, user_name)
+            # [추가] generate_excel_form 호출 시 team_name도 함께 넘깁니다.
+            excel_file = generate_excel_form(st.session_state.expense_items, user_name, team_name)
             target_m = datetime.now().strftime("%Y%m")
             try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
             except: pass
