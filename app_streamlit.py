@@ -260,7 +260,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 사용자명 무조건 표시되게 수정
+# [엑셀] 폼 생성 함수 - 배달비 증빙 하위 행(Row) 추가
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -295,10 +295,9 @@ def generate_excel_form(expense_items, user_name):
     for col in ['F', 'G', 'H', 'I']:
         ws.column_dimensions[col].width = 8 
 
-    target_month = datetime.now().strftime("%m")
-    if expense_items and expense_items[0].get("결제일자"):
-        try: target_month = expense_items[0]["결제일자"].split("-")[1]
-        except: pass
+    now = datetime.now()
+    prev_month = 12 if now.month == 1 else now.month - 1
+    target_month = f"{prev_month:02d}"
 
     ws.merge_cells('A1:D3')
     ws['A1'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
@@ -320,7 +319,6 @@ def generate_excel_form(expense_items, user_name):
         ws[f'{col_letter}3'].alignment = align_center
         apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
-    # [핵심 변경] 조건문 삭제 및 이름 무조건 강제 주입
     ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name}"
     ws['A5'].font = font_bold
@@ -357,16 +355,26 @@ def generate_excel_form(expense_items, user_name):
 
     current_row = 10
     for item in expense_items:
+        # 본 항목 (식대, 교통비 등) 기록
         ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
         ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
         ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
         ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0)).alignment = align_right
-        
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
-        
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
+        
+        # [핵심] 배달비 증빙이 있을 경우 엑셀의 '다음 행'에 추가
+        if item.get('배달비_이미지_display'):
+            ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
+            ws.cell(row=current_row, column=2, value="└ [배달비 영수증]").alignment = align_left
+            ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
+            ws.cell(row=current_row, column=4, value=0).alignment = align_right # 금액은 본 항목에 합산되므로 0처리
+            ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
+            ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_left
+            apply_border_to_range(f'A{current_row}:I{current_row}') 
+            current_row += 1
 
     while current_row <= 22:
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
@@ -398,10 +406,12 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 영수증 PDF 3x3 격자 생성 
+# 영수증 PDF 3x3 격자 생성 - 배달비는 식대 바로 다음 칸
 # ==========================================
 def generate_receipts_pdf(expense_items):
     receipt_imgs = []
+    # 데이터가 '날짜순'으로 정렬되어 넘어오므로, 
+    # 본 항목 이미지 append 직후 배달비 이미지를 append 하면 무조건 다음 칸(오른쪽)에 배치됩니다.
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
@@ -575,7 +585,8 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
         
-    st.session_state.expense_items.sort(key=lambda x: (categories.index(x['종류']), x['결제일자']))
+    # [정렬 변경] 업로드 완료 시 무조건 '날짜순(오름차순)'으로 강제 정렬
+    st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
     time.sleep(0.5)
@@ -697,6 +708,12 @@ if st.session_state.expense_items:
     
     col_submit, col_excel, col_pdf = st.columns([1.2, 1, 1])
     
+    now = datetime.now()
+    if now.month == 1:
+        target_m = f"{now.year - 1}12"
+    else:
+        target_m = f"{now.year}{now.month - 1:02d}"
+    
     with col_submit:
         if not st.session_state.submitted:
             if st.button("최종 제출하기", type="primary", use_container_width=True):
@@ -705,7 +722,9 @@ if st.session_state.expense_items:
                     st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
                 else:
                     with st.spinner("서버에 데이터를 등록하고 있습니다..."):
-                        if save_to_s3(user_name, team_name, day_status, st.session_state.expense_items):
+                        # [정렬 보장] S3 제출 전 다시 한 번 날짜순 정렬
+                        final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
+                        if save_to_s3(user_name, team_name, day_status, final_sorted_items):
                             st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
                             st.session_state.submitted = True 
                             time.sleep(1) 
@@ -719,11 +738,9 @@ if st.session_state.expense_items:
                 
     with col_excel:
         if st.session_state.expense_items:
-            # 팀네임 파라미터를 지우고 유저 이름만 넘기게 변경
-            excel_file = generate_excel_form(st.session_state.expense_items, user_name)
-            target_m = datetime.now().strftime("%Y%m")
-            try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
-            except: pass
+            # [정렬 보장] 엑셀 생성 시 무조건 날짜순 정렬된 데이터를 넘깁니다.
+            final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
+            excel_file = generate_excel_form(final_sorted_items, user_name)
             
             st.download_button(
                 label="엑셀 양식 다운로드",
@@ -735,10 +752,9 @@ if st.session_state.expense_items:
             
     with col_pdf:
         if st.session_state.expense_items:
-            pdf_file = generate_receipts_pdf(st.session_state.expense_items)
-            target_m = datetime.now().strftime("%Y%m")
-            try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
-            except: pass
+            # [정렬 보장] PDF 생성 시 무조건 날짜순 정렬된 데이터를 넘깁니다.
+            final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
+            pdf_file = generate_receipts_pdf(final_sorted_items)
             
             if pdf_file:
                 st.download_button(
