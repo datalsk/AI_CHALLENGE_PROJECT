@@ -30,9 +30,11 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
+    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
+    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -43,8 +45,12 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    [data-testid="column"] > div { gap: 0.3rem !important; }
+    /* 기본 컬럼 갭 축소 */
+    [data-testid="column"] > div {
+        gap: 0.3rem !important;
+    }
     
+    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -59,6 +65,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
+    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
@@ -80,6 +87,7 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
+    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -94,6 +102,7 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
     
+    /* 일반 텍스트 입력창 여백 */
     div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
@@ -103,6 +112,7 @@ st.markdown("""
         font-size: 14px !important;
     }
     
+    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -112,6 +122,7 @@ st.markdown("""
         font-size: 14px !important;
     }
     
+    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -386,10 +397,9 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [추가] 영수증 PDF 4x4 그리드 생성 함수
+# [수정] 영수증 PDF 3x3 그리드 생성 (가로/세로 꽉 채움)
 # ==========================================
 def generate_receipts_pdf(expense_items):
-    # 등록된 모든 이미지(메인 + 배달비) 추출
     receipt_imgs = []
     for item in expense_items:
         if item.get('image_display'):
@@ -402,10 +412,10 @@ def generate_receipts_pdf(expense_items):
 
     # A4 사이즈 세팅 (300dpi 기준)
     A4_W, A4_H = 2480, 3508
-    COLS, ROWS = 4, 4
+    COLS, ROWS = 3, 3 # [핵심] 4x4에서 3x3으로 변경하여 칸 크기를 대폭 키움
     MARGIN_X, MARGIN_Y = 100, 100
     
-    # 1개 셀의 할당 공간
+    # 1개 칸(Cell)이 차지하는 가로/세로 공간 (훨씬 넓어짐)
     CELL_W = (A4_W - MARGIN_X * 2) // COLS
     CELL_H = (A4_H - MARGIN_Y * 2) // ROWS
 
@@ -413,27 +423,34 @@ def generate_receipts_pdf(expense_items):
     current_page = None
     
     for i, img in enumerate(receipt_imgs):
-        if i % 16 == 0: # 16장마다 새 페이지 생성
+        # 9장(3x3)마다 새로운 A4 용지 생성
+        if i % 9 == 0: 
             if current_page:
                 pages.append(current_page)
             current_page = Image.new('RGB', (A4_W, A4_H), 'white')
         
-        idx_on_page = i % 16
+        idx_on_page = i % 9
         col = idx_on_page % COLS
         row = idx_on_page // COLS
         
-        # 그리드 상의 시작 좌표
+        # 영수증이 들어갈 칸의 시작 좌표 (x, y)
         x = MARGIN_X + col * CELL_W
         y = MARGIN_Y + row * CELL_H
         
-        # 이미지 리사이즈 (셀보다 약간 작게 여백을 줌)
         img_copy = img.copy()
         if img_copy.mode != 'RGB':
-            img_copy = img_copy.convert('RGB') # PDF 저장을 위한 RGB 변환
+            img_copy = img_copy.convert('RGB')
             
-        img_copy.thumbnail((CELL_W - 40, CELL_H - 40))
+        # [핵심] 칸 크기(CELL_W, CELL_H) 안에서 가로/세로 비율을 유지하며 
+        # 최대 크기로 맞춰줍니다. (자르지 않음)
+        # 칸 사이에 약간의 여백(60px)만 남깁니다.
+        target_w = CELL_W - 60
+        target_h = CELL_H - 60
         
-        # 셀 정중앙에 배치하기 위한 오프셋 계산
+        # LANCZOS 필터를 사용해 선명하게 리사이징
+        img_copy.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+        
+        # 칸의 정중앙에 배치하기 위한 오프셋 계산
         offset_x = x + (CELL_W - img_copy.width) // 2
         offset_y = y + (CELL_H - img_copy.height) // 2
         
@@ -672,9 +689,6 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    # ==========================================
-    # [수정] 3열 버튼 배치 (제출 / 엑셀 / PDF)
-    # ==========================================
     col_submit, col_excel, col_pdf = st.columns([1.2, 1, 1])
     
     with col_submit:
@@ -713,7 +727,6 @@ if st.session_state.expense_items:
             )
             
     with col_pdf:
-        # [추가] PDF 다운로드 버튼 로직
         if st.session_state.expense_items:
             pdf_file = generate_receipts_pdf(st.session_state.expense_items)
             target_m = datetime.now().strftime("%Y%m")
