@@ -26,6 +26,10 @@ st.markdown("""
     footer {visibility: hidden;}
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
+    
+    /* [추가] 우측 상단 툴바 (Share, Star, GitHub 등) 완벽 숨김 */
+    [data-testid="stHeaderActionElements"] {display: none !important;}
+    [data-testid="stToolbar"] {visibility: hidden !important;}
 
     /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -105,7 +109,7 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* [핵심] 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 '야근교통비' 글자 확보 */
+    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -161,10 +165,12 @@ def analyze_receipt(uploaded_file, retries=1):
     base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
+    # [추가] 한국식 날짜 표기법(YY.MM.DD) 완벽 대응 프롬프트
     prompt = """
     영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
     1. "결제 날짜": YYYY-MM-DD 형식. 
-    2. "사용처": 상호명 추출.
+       * 주의: 한국 영수증은 'YY.MM.DD' 형식을 자주 사용해. (예: '26.03.19'는 2019년 3월 26일이 아니라 '2026년 3월 19일'이야. 무조건 맨 앞 두 자리를 연도(20YY)로 해석해!)
+    2. "사용처": 상호명 추출. (택시/배달 앱의 경우 호출 옵션이나 가맹점 이름을 적어줘)
     3. "합계 금액": 최종 결제 금액 (숫자만).
     * 경고: 절대로 'None', 'null' 같은 문자열을 반환하지 마. 안 보이면 "미확인" 또는 0을 써.
     """
@@ -383,8 +389,6 @@ if st.session_state.expense_items:
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
-            # [핵심 수정] 첫 번째 칸(카테고리)의 가로 비율을 1.3 -> 1.7 로 대폭 늘려서 '야근교통비'가 짤리지 않게 함
-            # 남는 공간은 비고란(1.8->1.5)과 금액출력(1.2->1.0)에서 약간씩 양보
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
             item['종류'] = r1[0].selectbox(f"cat_{idx}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
