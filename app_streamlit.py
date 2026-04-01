@@ -260,9 +260,9 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 사용자명 및 소속팀 추가
+# [엑셀] 폼 생성 함수 - 사용자명 무조건 표시되게 수정
 # ==========================================
-def generate_excel_form(expense_items, user_name, team_name): # [추가] team_name 파라미터 추가
+def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "경비지급신청서"
@@ -320,12 +320,9 @@ def generate_excel_form(expense_items, user_name, team_name): # [추가] team_na
         ws[f'{col_letter}3'].alignment = align_center
         apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
-    # [핵심] 사용자 이름과 소속팀을 함께 표기합니다.
+    # [핵심 변경] 조건문 삭제 및 이름 무조건 강제 주입
     ws.merge_cells('A5:I5')
-    if user_name:
-        ws['A5'] = f"사용자 :  {user_name}  ({team_name})"
-    else:
-        ws['A5'] = "사용자 : "
+    ws['A5'] = f"사용자 : {user_name}"
     ws['A5'].font = font_bold
     ws['A5'].alignment = align_left
 
@@ -722,8 +719,8 @@ if st.session_state.expense_items:
                 
     with col_excel:
         if st.session_state.expense_items:
-            # [추가] generate_excel_form 호출 시 team_name도 함께 넘깁니다.
-            excel_file = generate_excel_form(st.session_state.expense_items, user_name, team_name)
+            # 팀네임 파라미터를 지우고 유저 이름만 넘기게 변경
+            excel_file = generate_excel_form(st.session_state.expense_items, user_name)
             target_m = datetime.now().strftime("%Y%m")
             try: target_m = st.session_state.expense_items[0]["결제일자"].replace("-", "")[:6]
             except: pass
