@@ -374,7 +374,7 @@ def generate_excel_form(expense_items, user_name):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
             
             # 여기서 사용처 이름 + 배달비 로 조합합니다!
-            delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
+            delivery_shop_name = f"{item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
             
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
