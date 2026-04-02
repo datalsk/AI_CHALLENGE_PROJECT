@@ -233,7 +233,6 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
 
     for idx, item in enumerate(expense_items):
         final_amt = item.get('_effective_cost', 0)
-        # 0원 처리된 항목 제외 방어코드 (이중 확인)
         if final_amt == 0 and item['종류'] == "프로젝트비용":
             continue
 
@@ -410,11 +409,10 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [수정] 영수증 WORD 문서 생성 - 2x3 (총 6칸) 배열
+# [수정] 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
-    # 본 항목 이미지 바로 다음에 배달비 이미지가 오도록 담습니다.
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
@@ -424,10 +422,8 @@ def generate_receipts_word(expense_items):
     if not receipt_imgs:
         return None
 
-    # Word 문서 객체 생성
     doc = docx.Document()
     
-    # A4 여백 1cm 꽉 채우기 (가용 너비: 19cm, 가용 높이: 27.7cm)
     for section in doc.sections:
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
@@ -436,26 +432,23 @@ def generate_receipts_word(expense_items):
         section.top_margin = Cm(1.0)
         section.bottom_margin = Cm(1.0)
 
-    # 영수증을 6장(1페이지 분량, 2열 3행)씩 쪼개기
     chunks = [receipt_imgs[i:i + 6] for i in range(0, len(receipt_imgs), 6)]
 
     for chunk_idx, chunk in enumerate(chunks):
-        # 3행 2열 표(Table) 생성, 'Table Grid' 스타일 적용
         table = doc.add_table(rows=3, cols=2)
         table.style = 'Table Grid'
         table.autofit = False
 
-        # 각 열의 너비를 균등하게 9.5cm로 설정 (전체 19cm / 2칸)
         for col in table.columns:
             for cell in col.cells:
                 cell.width = Cm(9.5)
 
         for i in range(6):
-            r_idx = i // 2 # 행 인덱스 (0, 1, 2)
-            c_idx = i % 2  # 열 인덱스 (0, 1)
+            r_idx = i // 2 
+            c_idx = i % 2  
             
-            # 행(Row)의 높이를 균등하게 9.2cm로 설정 (A4 가용 높이 27.7 / 3칸)
-            table.rows[r_idx].height = Cm(9.2)
+            # [수정] 행의 높이를 9.2cm 에서 9.0cm 로 줄여 여유 공간(숨통) 확보
+            table.rows[r_idx].height = Cm(9.0)
 
             if i < len(chunk):
                 img = chunk[i]
@@ -464,7 +457,6 @@ def generate_receipts_word(expense_items):
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
 
-                # Word 문서 용량 최적화를 위해 적당한 크기로 리사이징
                 img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
                 img.save(img_stream, format='JPEG', quality=85)
                 img_stream.seek(0)
@@ -473,14 +465,12 @@ def generate_receipts_word(expense_items):
                 p = cell.paragraphs[0]
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 
-                # 이미지 원본 비율 계산 (너비 / 높이)
                 img_w, img_h = img.size
                 ratio = img_w / img_h
                 
-                # [수정] 2칸 배열에 맞춰 칸(Cell) 내부 여백을 고려한 최대 크기 확장
-                target_w_cm, target_h_cm = 9.0, 8.8
+                # [수정] 셀 높이 축소에 맞춰 이미지 최대 높이도 8.8 -> 8.6cm 로 축소
+                target_w_cm, target_h_cm = 9.0, 8.6
                 
-                # 가로로 퍼진 이미지면 너비(9.0cm)에 맞추고, 세로로 긴 이미지면 높이(8.8cm)에 맞춤
                 if ratio > (target_w_cm / target_h_cm): 
                     p.add_run().add_picture(img_stream, width=Cm(target_w_cm))
                 else: 
