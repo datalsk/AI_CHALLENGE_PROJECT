@@ -754,7 +754,7 @@ if st.session_state.expense_items:
             
             if word_file:
                 st.download_button(
-                    label="영수증 모음(WORD) 다운로드",
+                    label="영수증 모음 다운로드",
                     data=word_file,
                     file_name=f"{user_name}_증빙자료_{target_m}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
