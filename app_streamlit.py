@@ -409,12 +409,11 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [수정] 영수증 WORD 문서 생성 (3x3 격자 이미지 활용)
+# [완전 개편] 영수증 개별 클릭 가능한 Word 3x3 표(Table) 생성 로직
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
-    # 데이터가 '날짜순'으로 정렬되어 넘어오므로, 
-    # 본 항목 이미지 바로 다음에 배달비 이미지가 오도록 담습니다.
+    # 데이터가 '날짜순'으로 정렬되어 넘어오므로 본 항목 직후 배달비 배치
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
@@ -424,75 +423,10 @@ def generate_receipts_word(expense_items):
     if not receipt_imgs:
         return None
 
-    # [핵심] 기존과 완벽하게 동일한 3x3 격자 A4 사이즈 이미지 생성
-    A4_W, A4_H = 2480, 3508
-    COLS, ROWS = 3, 3 
-    MARGIN_X, MARGIN_Y = 100, 100
-    
-    CELL_W = (A4_W - MARGIN_X * 2) // COLS
-    CELL_H = (A4_H - MARGIN_Y * 2) // ROWS
-
-    pages = []
-    current_page = None
-    
-    for i, img in enumerate(receipt_imgs):
-        if i % 9 == 0: 
-            if current_page:
-                pages.append(current_page)
-            current_page = Image.new('RGB', (A4_W, A4_H), 'white')
-            
-            draw = ImageDraw.Draw(current_page)
-            line_width = 4
-            line_color = "black"
-            
-            # 테두리 및 격자선 그리기
-            draw.rectangle([MARGIN_X, MARGIN_Y, A4_W - MARGIN_X, A4_H - MARGIN_Y], outline=line_color, width=line_width)
-            for col_line in range(1, COLS):
-                lx = MARGIN_X + col_line * CELL_W
-                draw.line([(lx, MARGIN_Y), (lx, A4_H - MARGIN_Y)], fill=line_color, width=line_width)
-            for row_line in range(1, ROWS):
-                ly = MARGIN_Y + row_line * CELL_H
-                draw.line([(MARGIN_X, ly), (A4_W - MARGIN_X, ly)], fill=line_color, width=line_width)
-        
-        idx_on_page = i % 9
-        col = idx_on_page % COLS
-        row = idx_on_page // COLS
-        
-        x = MARGIN_X + col * CELL_W
-        y = MARGIN_Y + row * CELL_H
-        
-        img_copy = img.copy()
-        if img_copy.mode != 'RGB':
-            img_copy = img_copy.convert('RGB')
-            
-        target_w = CELL_W - 60
-        target_h = CELL_H - 60
-        
-        # 기존과 동일한 리사이징 로직
-        img_ratio = img_copy.width / img_copy.height
-        cell_ratio = target_w / target_h
-        
-        if img_ratio < cell_ratio: 
-            new_h = target_h
-            new_w = int(new_h * img_ratio)
-        else: 
-            new_w = target_w
-            new_h = int(new_w / img_ratio)
-            
-        img_copy = img_copy.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
-        offset_x = x + (CELL_W - new_w) // 2
-        offset_y = y + (CELL_H - new_h) // 2
-        
-        current_page.paste(img_copy, (offset_x, offset_y))
-        
-    if current_page:
-        pages.append(current_page)
-
-    # 생성된 A4 크기 이미지를 Word 문서(docx) 각 페이지에 삽입
+    # Word 문서 객체 생성
     doc = docx.Document()
     
-    # Word 문서의 여백을 최소화하여 이미지가 꽉 차게 설정
+    # A4 여백 1cm 꽉 채우기 (가용 너비: 19cm, 가용 높이: 27.7cm)
     for section in doc.sections:
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
@@ -500,17 +434,60 @@ def generate_receipts_word(expense_items):
         section.right_margin = Cm(1.0)
         section.top_margin = Cm(1.0)
         section.bottom_margin = Cm(1.0)
-        
-    for page_img in pages:
-        img_byte_arr = io.BytesIO()
-        page_img.save(img_byte_arr, format='JPEG', quality=90) # 파일 용량 최적화
-        img_byte_arr.seek(0)
-        
-        # 문단(Paragraph)을 추가하고 이미지를 가운데 정렬하여 삽입
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run()
-        r.add_picture(img_byte_arr, width=Cm(19.0)) # 여백 2cm를 제외한 19cm 너비로 삽입
+
+    # 영수증을 9장(1페이지 분량)씩 쪼개기
+    chunks = [receipt_imgs[i:i + 9] for i in range(0, len(receipt_imgs), 9)]
+
+    for chunk_idx, chunk in enumerate(chunks):
+        # 3x3 표(Table) 생성, 'Table Grid' 스타일 적용(격자선 표시)
+        table = doc.add_table(rows=3, cols=3)
+        table.style = 'Table Grid'
+        table.autofit = False
+
+        # 각 열의 너비를 균등하게 6.3cm로 설정
+        for col in table.columns:
+            for cell in col.cells:
+                cell.width = Cm(6.3)
+
+        for i in range(9):
+            r_idx = i // 3
+            c_idx = i % 3
+            
+            # 행(Row)의 높이를 균등하게 9.2cm로 설정 (A4 가용 높이 27.7 / 3)
+            table.rows[r_idx].height = Cm(9.2)
+
+            if i < len(chunk):
+                img = chunk[i]
+                img_stream = io.BytesIO()
+
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+
+                # Word 문서 용량 최적화를 위해 적당한 크기로 리사이징
+                img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                img.save(img_stream, format='JPEG', quality=85)
+                img_stream.seek(0)
+
+                cell = table.cell(r_idx, c_idx)
+                p = cell.paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+                # 이미지 원본 비율 계산 (너비 / 높이)
+                img_w, img_h = img.size
+                ratio = img_w / img_h
+                
+                # 칸(Cell) 안에 여백을 두고 예쁘게 들어가도록 목표 크기 설정
+                target_w_cm, target_h_cm = 6.0, 8.8
+                
+                # 가로로 퍼진 이미지면 너비(6.0cm)에 맞추고, 세로로 긴 이미지면 높이(8.8cm)에 맞춤
+                if ratio > (target_w_cm / target_h_cm): 
+                    p.add_run().add_picture(img_stream, width=Cm(target_w_cm))
+                else: 
+                    p.add_run().add_picture(img_stream, height=Cm(target_h_cm))
+
+        # 마지막 페이지가 아니라면 페이지 넘김 추가
+        if chunk_idx < len(chunks) - 1:
+            doc.add_page_break()
 
     output = io.BytesIO()
     doc.save(output)
@@ -724,7 +701,6 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    # [수정] PDF 컬럼 이름을 WORD에 맞게 변경
     col_submit, col_excel, col_word = st.columns([1.2, 1, 1])
     
     now = datetime.now()
@@ -773,9 +749,8 @@ if st.session_state.expense_items:
             word_file = generate_receipts_word(final_sorted_items)
             
             if word_file:
-                # [수정] 다운로드 버튼 라벨과 파일 확장자를 WORD 형태로 변경
                 st.download_button(
-                    label="영수증 모음(WORD) 다운로드",
+                    label="영수증 증빙 다운로드",
                     data=word_file,
                     file_name=f"{user_name}_증빙자료_{target_m}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
