@@ -13,6 +13,11 @@ from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from datetime import datetime
 from PIL import Image, ImageDraw
 
+# [추가] Word 생성을 위한 모듈
+import docx
+from docx.shared import Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+
 # ==========================================
 # 0. UI 설정 및 컴팩트 SaaS 디자인 CSS 적용
 # ==========================================
@@ -355,7 +360,6 @@ def generate_excel_form(expense_items, user_name):
 
     current_row = 10
     for item in expense_items:
-        # 본 항목 (식대, 교통비 등) 기록
         ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
         ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
         ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
@@ -365,12 +369,11 @@ def generate_excel_form(expense_items, user_name):
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
         
-        # [핵심] 배달비 증빙이 있을 경우 엑셀의 '다음 행'에 추가
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
             ws.cell(row=current_row, column=2, value="└ [배달비 영수증]").alignment = align_left
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
-            ws.cell(row=current_row, column=4, value=0).alignment = align_right # 금액은 본 항목에 합산되므로 0처리
+            ws.cell(row=current_row, column=4, value=0).alignment = align_right 
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
             ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_left
             apply_border_to_range(f'A{current_row}:I{current_row}') 
@@ -406,12 +409,12 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 영수증 PDF 3x3 격자 생성 - 배달비는 식대 바로 다음 칸
+# [수정] 영수증 WORD 문서 생성 (3x3 격자 이미지 활용)
 # ==========================================
-def generate_receipts_pdf(expense_items):
+def generate_receipts_word(expense_items):
     receipt_imgs = []
     # 데이터가 '날짜순'으로 정렬되어 넘어오므로, 
-    # 본 항목 이미지 append 직후 배달비 이미지를 append 하면 무조건 다음 칸(오른쪽)에 배치됩니다.
+    # 본 항목 이미지 바로 다음에 배달비 이미지가 오도록 담습니다.
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
@@ -421,6 +424,7 @@ def generate_receipts_pdf(expense_items):
     if not receipt_imgs:
         return None
 
+    # [핵심] 기존과 완벽하게 동일한 3x3 격자 A4 사이즈 이미지 생성
     A4_W, A4_H = 2480, 3508
     COLS, ROWS = 3, 3 
     MARGIN_X, MARGIN_Y = 100, 100
@@ -441,12 +445,11 @@ def generate_receipts_pdf(expense_items):
             line_width = 4
             line_color = "black"
             
+            # 테두리 및 격자선 그리기
             draw.rectangle([MARGIN_X, MARGIN_Y, A4_W - MARGIN_X, A4_H - MARGIN_Y], outline=line_color, width=line_width)
-            
             for col_line in range(1, COLS):
                 lx = MARGIN_X + col_line * CELL_W
                 draw.line([(lx, MARGIN_Y), (lx, A4_H - MARGIN_Y)], fill=line_color, width=line_width)
-                
             for row_line in range(1, ROWS):
                 ly = MARGIN_Y + row_line * CELL_H
                 draw.line([(MARGIN_X, ly), (A4_W - MARGIN_X, ly)], fill=line_color, width=line_width)
@@ -465,6 +468,7 @@ def generate_receipts_pdf(expense_items):
         target_w = CELL_W - 60
         target_h = CELL_H - 60
         
+        # 기존과 동일한 리사이징 로직
         img_ratio = img_copy.width / img_copy.height
         cell_ratio = target_w / target_h
         
@@ -485,9 +489,31 @@ def generate_receipts_pdf(expense_items):
     if current_page:
         pages.append(current_page)
 
+    # 생성된 A4 크기 이미지를 Word 문서(docx) 각 페이지에 삽입
+    doc = docx.Document()
+    
+    # Word 문서의 여백을 최소화하여 이미지가 꽉 차게 설정
+    for section in doc.sections:
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
+        section.left_margin = Cm(1.0)
+        section.right_margin = Cm(1.0)
+        section.top_margin = Cm(1.0)
+        section.bottom_margin = Cm(1.0)
+        
+    for page_img in pages:
+        img_byte_arr = io.BytesIO()
+        page_img.save(img_byte_arr, format='JPEG', quality=90) # 파일 용량 최적화
+        img_byte_arr.seek(0)
+        
+        # 문단(Paragraph)을 추가하고 이미지를 가운데 정렬하여 삽입
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run()
+        r.add_picture(img_byte_arr, width=Cm(19.0)) # 여백 2cm를 제외한 19cm 너비로 삽입
+
     output = io.BytesIO()
-    if len(pages) > 0:
-        pages[0].save(output, format='PDF', save_all=True, append_images=pages[1:])
+    doc.save(output)
     output.seek(0)
     return output
 
@@ -570,10 +596,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
             "결제일자": res.get("결제 날짜"), 
             "사용처": res.get("사용처"), 
             "인식금액": safe_int(res.get("합계 금액")), 
-            "배달비": 0, 
             "비고": "", 
-            "동석자_백업": "",
-            "증빙방식": "동석자 입력",
             "image_display": img, 
             "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
@@ -585,7 +608,6 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
         
-    # [정렬 변경] 업로드 완료 시 무조건 '날짜순(오름차순)'으로 강제 정렬
     st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
@@ -627,9 +649,6 @@ if st.session_state.expense_items:
         uid = item['id']
 
         with st.container(border=True):
-            if '동석자_백업' not in item: item['동석자_백업'] = item.get('비고', '') if item.get('비고') != "배달비 증빙" else ""
-            if '증빙방식' not in item: item['증빙방식'] = "동석자 입력"
-
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
 
@@ -668,7 +687,6 @@ if st.session_state.expense_items:
             if is_high_cost_meal:
                 r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
             else:
-                item['배달비'] = 0
                 item['배달비_이미지_display'] = None
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
@@ -706,7 +724,8 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    col_submit, col_excel, col_pdf = st.columns([1.2, 1, 1])
+    # [수정] PDF 컬럼 이름을 WORD에 맞게 변경
+    col_submit, col_excel, col_word = st.columns([1.2, 1, 1])
     
     now = datetime.now()
     if now.month == 1:
@@ -722,7 +741,6 @@ if st.session_state.expense_items:
                     st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
                 else:
                     with st.spinner("서버에 데이터를 등록하고 있습니다..."):
-                        # [정렬 보장] S3 제출 전 다시 한 번 날짜순 정렬
                         final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
                         if save_to_s3(user_name, team_name, day_status, final_sorted_items):
                             st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
@@ -738,7 +756,6 @@ if st.session_state.expense_items:
                 
     with col_excel:
         if st.session_state.expense_items:
-            # [정렬 보장] 엑셀 생성 시 무조건 날짜순 정렬된 데이터를 넘깁니다.
             final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
             excel_file = generate_excel_form(final_sorted_items, user_name)
             
@@ -750,17 +767,17 @@ if st.session_state.expense_items:
                 use_container_width=True
             )
             
-    with col_pdf:
+    with col_word:
         if st.session_state.expense_items:
-            # [정렬 보장] PDF 생성 시 무조건 날짜순 정렬된 데이터를 넘깁니다.
             final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
-            pdf_file = generate_receipts_pdf(final_sorted_items)
+            word_file = generate_receipts_word(final_sorted_items)
             
-            if pdf_file:
+            if word_file:
+                # [수정] 다운로드 버튼 라벨과 파일 확장자를 WORD 형태로 변경
                 st.download_button(
-                    label="영수증 모음(PDF) 다운로드",
-                    data=pdf_file,
-                    file_name=f"{user_name}_증빙자료_{target_m}.pdf",
-                    mime="application/pdf",
+                    label="영수증 모음(WORD) 다운로드",
+                    data=word_file,
+                    file_name=f"{user_name}_증빙자료_{target_m}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
