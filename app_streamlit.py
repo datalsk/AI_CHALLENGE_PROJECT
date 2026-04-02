@@ -13,7 +13,7 @@ from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from datetime import datetime
 from PIL import Image, ImageDraw
 
-# [추가] Word 생성을 위한 모듈
+# Word 생성을 위한 모듈
 import docx
 from docx.shared import Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -233,6 +233,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
 
     for idx, item in enumerate(expense_items):
         final_amt = item.get('_effective_cost', 0)
+        # 0원 처리된 항목 제외 방어코드 (이중 확인)
         if final_amt == 0 and item['종류'] == "프로젝트비용":
             continue
 
@@ -265,7 +266,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 배달비 증빙 하위 행(Row) 추가
+# [엑셀] 폼 생성 함수
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -409,11 +410,11 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [완전 개편] 영수증 개별 클릭 가능한 Word 3x3 표(Table) 생성 로직
+# [수정] 영수증 WORD 문서 생성 - 2x3 (총 6칸) 배열
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
-    # 데이터가 '날짜순'으로 정렬되어 넘어오므로 본 항목 직후 배달비 배치
+    # 본 항목 이미지 바로 다음에 배달비 이미지가 오도록 담습니다.
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
@@ -435,25 +436,25 @@ def generate_receipts_word(expense_items):
         section.top_margin = Cm(1.0)
         section.bottom_margin = Cm(1.0)
 
-    # 영수증을 9장(1페이지 분량)씩 쪼개기
-    chunks = [receipt_imgs[i:i + 9] for i in range(0, len(receipt_imgs), 9)]
+    # 영수증을 6장(1페이지 분량, 2열 3행)씩 쪼개기
+    chunks = [receipt_imgs[i:i + 6] for i in range(0, len(receipt_imgs), 6)]
 
     for chunk_idx, chunk in enumerate(chunks):
-        # 3x3 표(Table) 생성, 'Table Grid' 스타일 적용(격자선 표시)
-        table = doc.add_table(rows=3, cols=3)
+        # 3행 2열 표(Table) 생성, 'Table Grid' 스타일 적용
+        table = doc.add_table(rows=3, cols=2)
         table.style = 'Table Grid'
         table.autofit = False
 
-        # 각 열의 너비를 균등하게 6.3cm로 설정
+        # 각 열의 너비를 균등하게 9.5cm로 설정 (전체 19cm / 2칸)
         for col in table.columns:
             for cell in col.cells:
-                cell.width = Cm(6.3)
+                cell.width = Cm(9.5)
 
-        for i in range(9):
-            r_idx = i // 3
-            c_idx = i % 3
+        for i in range(6):
+            r_idx = i // 2 # 행 인덱스 (0, 1, 2)
+            c_idx = i % 2  # 열 인덱스 (0, 1)
             
-            # 행(Row)의 높이를 균등하게 9.2cm로 설정 (A4 가용 높이 27.7 / 3)
+            # 행(Row)의 높이를 균등하게 9.2cm로 설정 (A4 가용 높이 27.7 / 3칸)
             table.rows[r_idx].height = Cm(9.2)
 
             if i < len(chunk):
@@ -464,7 +465,7 @@ def generate_receipts_word(expense_items):
                     img = img.convert('RGB')
 
                 # Word 문서 용량 최적화를 위해 적당한 크기로 리사이징
-                img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
                 img.save(img_stream, format='JPEG', quality=85)
                 img_stream.seek(0)
 
@@ -476,10 +477,10 @@ def generate_receipts_word(expense_items):
                 img_w, img_h = img.size
                 ratio = img_w / img_h
                 
-                # 칸(Cell) 안에 여백을 두고 예쁘게 들어가도록 목표 크기 설정
-                target_w_cm, target_h_cm = 6.0, 8.8
+                # [수정] 2칸 배열에 맞춰 칸(Cell) 내부 여백을 고려한 최대 크기 확장
+                target_w_cm, target_h_cm = 9.0, 8.8
                 
-                # 가로로 퍼진 이미지면 너비(6.0cm)에 맞추고, 세로로 긴 이미지면 높이(8.8cm)에 맞춤
+                # 가로로 퍼진 이미지면 너비(9.0cm)에 맞추고, 세로로 긴 이미지면 높이(8.8cm)에 맞춤
                 if ratio > (target_w_cm / target_h_cm): 
                     p.add_run().add_picture(img_stream, width=Cm(target_w_cm))
                 else: 
@@ -701,6 +702,12 @@ if st.session_state.expense_items:
 
     st.write("")
     
+    valid_items = [
+        item for item in st.session_state.expense_items 
+        if not (item['종류'] == "프로젝트비용" and item.get('_effective_cost', 0) == 0)
+    ]
+    final_sorted_items = sorted(valid_items, key=lambda x: str(x.get('결제일자', '')))
+    
     col_submit, col_excel, col_word = st.columns([1.2, 1, 1])
     
     now = datetime.now()
@@ -717,7 +724,6 @@ if st.session_state.expense_items:
                     st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
                 else:
                     with st.spinner("서버에 데이터를 등록하고 있습니다..."):
-                        final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
                         if save_to_s3(user_name, team_name, day_status, final_sorted_items):
                             st.toast('정산 내역이 성공적으로 등록되었습니다.', icon='✔️')
                             st.session_state.submitted = True 
@@ -731,8 +737,7 @@ if st.session_state.expense_items:
                 st.rerun()
                 
     with col_excel:
-        if st.session_state.expense_items:
-            final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
+        if final_sorted_items:
             excel_file = generate_excel_form(final_sorted_items, user_name)
             
             st.download_button(
@@ -744,13 +749,12 @@ if st.session_state.expense_items:
             )
             
     with col_word:
-        if st.session_state.expense_items:
-            final_sorted_items = sorted(st.session_state.expense_items, key=lambda x: str(x.get('결제일자', '')))
+        if final_sorted_items:
             word_file = generate_receipts_word(final_sorted_items)
             
             if word_file:
                 st.download_button(
-                    label="영수증 증빙 다운로드",
+                    label="영수증 모음(WORD) 다운로드",
                     data=word_file,
                     file_name=f"{user_name}_증빙자료_{target_m}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
