@@ -265,7 +265,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수
+# [엑셀] 폼 생성 함수 - 배달비 사용처 수정
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -369,9 +369,14 @@ def generate_excel_form(expense_items, user_name):
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
         
+        # [수정] 배달비 영수증 첨부 시: └ {사용처} 배달비 로 표시
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
-            ws.cell(row=current_row, column=2, value="└ [배달비 영수증]").alignment = align_left
+            
+            # 여기서 사용처 이름 + 배달비 로 조합합니다!
+            delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
+            ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
+            
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
             ws.cell(row=current_row, column=4, value=0).alignment = align_right 
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
@@ -409,7 +414,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# [수정] 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
+# 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -447,7 +452,6 @@ def generate_receipts_word(expense_items):
             r_idx = i // 2 
             c_idx = i % 2  
             
-            # [수정] 행의 높이를 9.2cm 에서 9.0cm 로 줄여 여유 공간(숨통) 확보
             table.rows[r_idx].height = Cm(9.0)
 
             if i < len(chunk):
@@ -468,7 +472,6 @@ def generate_receipts_word(expense_items):
                 img_w, img_h = img.size
                 ratio = img_w / img_h
                 
-                # [수정] 셀 높이 축소에 맞춰 이미지 최대 높이도 8.8 -> 8.6cm 로 축소
                 target_w_cm, target_h_cm = 9.0, 8.6
                 
                 if ratio > (target_w_cm / target_h_cm): 
@@ -476,7 +479,6 @@ def generate_receipts_word(expense_items):
                 else: 
                     p.add_run().add_picture(img_stream, height=Cm(target_h_cm))
 
-        # 마지막 페이지가 아니라면 페이지 넘김 추가
         if chunk_idx < len(chunks) - 1:
             doc.add_page_break()
 
@@ -744,7 +746,7 @@ if st.session_state.expense_items:
             
             if word_file:
                 st.download_button(
-                    label="영수증 모음 다운로드",
+                    label="영수증 모음(WORD) 다운로드",
                     data=word_file,
                     file_name=f"{user_name}_증빙자료_{target_m}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
