@@ -11,7 +11,7 @@ import calendar
 import uuid
 import openpyxl
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
-from openpyxl.drawing.image import Image as ExcelImage # [추가] 엑셀용 이미지 모듈
+from openpyxl.drawing.image import Image as ExcelImage
 from datetime import datetime
 from PIL import Image, ImageDraw
 
@@ -267,7 +267,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 로고 삽입 기능 추가
+# [엑셀] 폼 생성 함수
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -317,6 +317,7 @@ def generate_excel_form(expense_items, user_name):
     ws['E1'].alignment = align_center
     apply_border_to_range('E1:E3') 
     
+    # 결재란 서명 공간 높이 확보
     ws.row_dimensions[2].height = 45 
 
     for idx, approver in enumerate(approvers):
@@ -373,10 +374,13 @@ def generate_excel_form(expense_items, user_name):
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
         
+        # 배달비 증빙 라인 추가
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
-            delivery_shop_name = f"{item.get('사용처', '')} 배달비" 
+            
+            delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
+            
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
             ws.cell(row=current_row, column=4, value=0).alignment = align_right 
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
@@ -409,19 +413,26 @@ def generate_excel_form(expense_items, user_name):
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
 
     # ===================================================
-    # [핵심] 우측 하단 회사 로고 이미지 띄우기 (Floating)
+    # [강화된 로고 삽입] 절대 경로 및 이미지 안정화 처리
     # ===================================================
-    logo_path = "logo.png" # 앱 폴더 내에 logo.png 파일이 있어야 합니다.
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(current_dir, "logo.png")
+
     if os.path.exists(logo_path):
         try:
-            logo_img = ExcelImage(logo_path)
-            # 이미지 크기를 캡처 화면 비율에 맞게 적절히 조정
-            logo_img.width = 140
-            logo_img.height = 35
-            # 날짜 줄의 약간 윗부분(우측)에 띄우도록 Anchor 설정 (G열 쯤)
-            ws.add_image(logo_img, f"G{current_row - 1}")
+            with Image.open(logo_path) as pil_img:
+                if pil_img.mode != 'RGBA':
+                    pil_img = pil_img.convert('RGBA')
+                img_byte_arr = io.BytesIO()
+                pil_img.save(img_byte_arr, format='PNG')
+                img_byte_arr.seek(0)
+            
+            logo_img = ExcelImage(img_byte_arr)
+            logo_img.width = 180  
+            logo_img.height = 45
+            ws.add_image(logo_img, f"G{current_row}")
         except Exception as e:
-            pass # 파일이 없거나 오류나도 정산서 생성은 멈추지 않음
+            print(f"로고 삽입 에러 발생: {e}")
 
     output = io.BytesIO()
     wb.save(output)
@@ -429,7 +440,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
+# 영수증 WORD 문서 생성 - 2x3 (총 6칸)
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -709,6 +720,7 @@ if st.session_state.expense_items:
 
     st.write("")
     
+    # 0원 처리된 프로젝트 비용은 최종 제출 및 다운로드에서 제외
     valid_items = [
         item for item in st.session_state.expense_items 
         if not (item['종류'] == "프로젝트비용" and item.get('_effective_cost', 0) == 0)
