@@ -265,7 +265,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 배달비 사용처 수정
+# [엑셀] 폼 생성 함수 - 결재란 높이 확장
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -315,6 +315,9 @@ def generate_excel_form(expense_items, user_name):
     ws['E1'].alignment = align_center
     apply_border_to_range('E1:E3') 
     
+    # [수정] 결재 서명란(2행)의 높이를 기본 3칸 정도로 넉넉하게 확장 (약 45 포인트)
+    ws.row_dimensions[2].height = 45 
+
     for idx, approver in enumerate(approvers):
         col_letter = chr(ord('F') + idx) 
         ws[f'{col_letter}1'] = approver
@@ -369,11 +372,9 @@ def generate_excel_form(expense_items, user_name):
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
         
-        # [수정] 배달비 영수증 첨부 시: └ {사용처} 배달비 로 표시
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
             
-            # 여기서 사용처 이름 + 배달비 로 조합합니다!
             delivery_shop_name = f"{item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
             
