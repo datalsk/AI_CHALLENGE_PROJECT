@@ -605,7 +605,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         })
         
         if i < total_files - 1:
-            time.sleep(1) 
+            time.sleep(3) 
             
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
