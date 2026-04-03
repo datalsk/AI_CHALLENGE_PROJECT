@@ -413,8 +413,11 @@ def generate_excel_form(expense_items, user_name):
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
 
     # ===================================================
-    # [강화된 로고 삽입] 절대 경로 및 이미지 안정화 처리
+    # [핵심] 날짜 행 높이를 키우고 로고를 그 안에 맞게 삽입
     # ===================================================
+    # 날짜가 들어간 행의 높이를 로고가 쏙 들어갈 수 있도록 넉넉히(40 포인트) 늘려줍니다.
+    ws.row_dimensions[current_row].height = 40 
+
     current_dir = os.path.dirname(os.path.abspath(__file__))
     logo_path = os.path.join(current_dir, "logo.png")
 
@@ -428,8 +431,11 @@ def generate_excel_form(expense_items, user_name):
                 img_byte_arr.seek(0)
             
             logo_img = ExcelImage(img_byte_arr)
-            logo_img.width = 180  
-            logo_img.height = 45
+            # 행 높이(40)에 딱 맞도록 이미지 높이를 40으로 맞춥니다.
+            logo_img.width = 160  
+            logo_img.height = 40
+            
+            # 행이 몇 개가 되든 상관없이, 동적으로 늘어난 날짜 행(current_row)의 G열에 찰떡같이 삽입
             ws.add_image(logo_img, f"G{current_row}")
         except Exception as e:
             print(f"로고 삽입 에러 발생: {e}")
@@ -440,7 +446,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 영수증 WORD 문서 생성 - 2x3 (총 6칸)
+# 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -720,7 +726,6 @@ if st.session_state.expense_items:
 
     st.write("")
     
-    # 0원 처리된 프로젝트 비용은 최종 제출 및 다운로드에서 제외
     valid_items = [
         item for item in st.session_state.expense_items 
         if not (item['종류'] == "프로젝트비용" and item.get('_effective_cost', 0) == 0)
