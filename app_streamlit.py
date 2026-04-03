@@ -5,11 +5,13 @@ import base64
 import requests
 import json
 import io
+import os
 import time
 import calendar
 import uuid
 import openpyxl
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
+from openpyxl.drawing.image import Image as ExcelImage # [추가] 엑셀용 이미지 모듈
 from datetime import datetime
 from PIL import Image, ImageDraw
 
@@ -265,7 +267,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 - 결재란 높이 확장
+# [엑셀] 폼 생성 함수 - 로고 삽입 기능 추가
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -315,7 +317,6 @@ def generate_excel_form(expense_items, user_name):
     ws['E1'].alignment = align_center
     apply_border_to_range('E1:E3') 
     
-    # [수정] 결재 서명란(2행)의 높이를 기본 3칸 정도로 넉넉하게 확장 (약 45 포인트)
     ws.row_dimensions[2].height = 45 
 
     for idx, approver in enumerate(approvers):
@@ -374,10 +375,8 @@ def generate_excel_form(expense_items, user_name):
         
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
-            
             delivery_shop_name = f"{item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
-            
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
             ws.cell(row=current_row, column=4, value=0).alignment = align_right 
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
@@ -408,6 +407,21 @@ def generate_excel_form(expense_items, user_name):
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
+
+    # ===================================================
+    # [핵심] 우측 하단 회사 로고 이미지 띄우기 (Floating)
+    # ===================================================
+    logo_path = "logo.png" # 앱 폴더 내에 logo.png 파일이 있어야 합니다.
+    if os.path.exists(logo_path):
+        try:
+            logo_img = ExcelImage(logo_path)
+            # 이미지 크기를 캡처 화면 비율에 맞게 적절히 조정
+            logo_img.width = 140
+            logo_img.height = 35
+            # 날짜 줄의 약간 윗부분(우측)에 띄우도록 Anchor 설정 (G열 쯤)
+            ws.add_image(logo_img, f"G{current_row - 1}")
+        except Exception as e:
+            pass # 파일이 없거나 오류나도 정산서 생성은 멈추지 않음
 
     output = io.BytesIO()
     wb.save(output)
