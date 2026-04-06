@@ -10,7 +10,7 @@ import time
 import calendar
 import uuid
 import openpyxl
-import zipfile # [추가] Word 내부 이미지 추출을 위한 모듈
+import zipfile 
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill, Protection
 from openpyxl.drawing.image import Image as ExcelImage
 from datetime import datetime
@@ -198,6 +198,12 @@ def analyze_receipt(uploaded_file, retries=1):
     for attempt in range(retries + 1):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
+            
+            # API 제한 초과 등의 에러 방어력 향상
+            if response.status_code != 200:
+                time.sleep(3)
+                continue
+                
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
             
             date_str = str(res_data.get("결제 날짜", "")).strip().lower()
@@ -216,9 +222,9 @@ def analyze_receipt(uploaded_file, retries=1):
             res_data["is_uncertain"] = (res_data.get("사용처") == "미확인" or safe_int(res_data.get("합계 금액")) == 0)
             return res_data
             
-        except:
+        except Exception as e:
             if attempt < retries:
-                time.sleep(1)
+                time.sleep(3) # 실패 시 휴식 시간 증가
                 continue
             break
             
@@ -516,7 +522,6 @@ def generate_receipts_word(expense_items):
     output.seek(0)
     return output
 
-# [추가] 추출된 이미지 바이트 데이터를 분석 함수(analyze_receipt) 및 화면 표시에 호환되게 감싸는 클래스
 class MockFile(io.BytesIO):
     def __init__(self, name, data):
         super().__init__(data)
@@ -569,7 +574,6 @@ for i, cat in enumerate(categories):
 
 st.write("") 
 
-# [수정] 업로드 허용 파일 형식에 docx 추가
 uploaded_files = st.file_uploader("증빙 자료(이미지 또는 Word 문서) 업로드", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'docx'], key=f"receipt_uploader_{st.session_state.uploader_key}")
 
 if uploaded_files:
@@ -589,30 +593,21 @@ else:
 if uploaded_files and st.button("파일 자동 입력 시작", type="primary", use_container_width=True):
     st.session_state.submitted = False 
     
-    # ==========================================
-    # [핵심] 일반 이미지와 Word 문서 속 이미지를 평탄화(Flatten) 처리
-    # ==========================================
     processed_images = []
     
     for f in uploaded_files:
         if f.name.lower().endswith('.docx'):
             try:
-                # ZipFile을 이용해 Word 내부 미디어 폴더 강제 추출
                 with zipfile.ZipFile(f) as docx_zip:
                     media_files = [name for name in docx_zip.namelist() if name.startswith('word/media/') and name.lower().endswith(('.png', '.jpg', '.jpeg'))]
                     for img_name in media_files:
                         img_bytes = docx_zip.read(img_name)
-                        
-                        # Word 문서 내부의 원본 이미지 이름(image1.png 등)을 추출
                         extracted_name = f"{f.name}_{img_name.split('/')[-1]}"
-                        
-                        # 추출된 바이트 데이터를 처리 가능한 파일 객체 형태로 포장
                         mock_file = MockFile(extracted_name, img_bytes)
                         processed_images.append(mock_file)
             except Exception as e:
                 st.error(f"{f.name} 파일에서 이미지를 추출하는 데 실패했습니다.")
         else:
-            # 일반 이미지 파일은 그대로 리스트에 추가
             processed_images.append(f)
             
     total_files = len(processed_images)
@@ -623,12 +618,13 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         
     progress_bar = st.progress(0, text=f"총 {total_files}건의 이미지를 분석 중입니다...")
     
+    # =========================================================
+    # [핵심 변경] API 한도(Rate Limit) 방어를 위한 Batch 휴식 로직
+    # =========================================================
     for i, img_obj in enumerate(processed_images):
-        # 원본 파일명 기반 매핑 (Word 추출 이미지는 현재 선택된 카테고리를 따름)
         original_file_name = img_obj.name.split('_word/media/')[0] if 'word/media/' in img_obj.name else img_obj.name
         assigned_cat = st.session_state.file_cat_map.get(original_file_name, st.session_state.selected_cat)
         
-        # 분석 함수 호출 (img_obj 내부 데이터를 넘김)
         res = analyze_receipt(img_obj) 
         
         img = Image.open(img_obj)
@@ -646,12 +642,18 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
             "is_uncertain": res.get("is_uncertain", False)
         })
         
-        if i < total_files - 1:
-            time.sleep(3) # AI 과부하 방지 3초 딜레이
-            
         progress_percentage = int(((i + 1) / total_files) * 100)
-        progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
         
+        if i < total_files - 1:
+            # 매 10번째 이미지를 처리하고 나면 20초 동안 카운트다운하며 푹 쉽니다.
+            if (i + 1) % 10 == 0:
+                for sec in range(20, 0, -1):
+                    progress_bar.progress(progress_percentage, text=f"⚠️ 서버 과부하 방지를 위해 대기 중... {sec}초 후 재개 (현재 {i+1}건 완료)")
+                    time.sleep(1)
+            else:
+                progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
+                time.sleep(1.5) # 평소에는 1.5초 딜레이
+                
     st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
     st.session_state.uploader_key += 1 
