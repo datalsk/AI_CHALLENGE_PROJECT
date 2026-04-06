@@ -8,7 +8,6 @@ import requests
 import io
 import os
 
-# [새로 추가된 모듈] 사용자 앱과 동일한 문서 생성을 위한 라이브러리
 import openpyxl
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill, Protection
 from openpyxl.drawing.image import Image as ExcelImage
@@ -34,7 +33,6 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
 
-    /* 모던 카드 UI (다크/라이트 모드 대응 투명도 사용) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
         box-shadow: rgba(0, 0, 0, 0.05) 0px 4px 10px !important;
@@ -44,7 +42,6 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -58,7 +55,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 일반 버튼 및 팝오버 버튼 (세로 꺾임 완벽 방지) */
     .stButton > button, div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 500 !important;
@@ -73,11 +69,9 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.1) !important;
     }
     
-    /* 타이틀 폰트 굵기 */
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 라운딩 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 8px !important;
     }
@@ -144,7 +138,7 @@ def get_presigned_url(full_url):
     return None
 
 # ==========================================
-# [추가] 관리자 문서 일괄 생성 로직 (사용자 앱과 100% 동일)
+# 문서 생성 모듈 1: 개인별 엑셀 폼 (기존)
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -316,6 +310,9 @@ def generate_excel_form(expense_items, user_name):
     output.seek(0)
     return output
 
+# ==========================================
+# 문서 생성 모듈 2: 개인별 워드 영수증 모음 (기존)
+# ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
     for item in expense_items:
@@ -385,6 +382,166 @@ def generate_receipts_word(expense_items):
     return output
 
 # ==========================================
+# 문서 생성 모듈 3: [신규] 월간 팀별 전체 집계표 엑셀
+# ==========================================
+def generate_team_aggregate_excel(df, team_name, year_month):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"월간 경비 집계 ({team_name})"
+
+    # 스타일 정의
+    align_c = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    font_bold = Font(bold=True)
+    font_title = Font(name='맑은 고딕', size=14, bold=True)
+    
+    fill_blue = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    fill_grey = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    fill_yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+    thick_border = Border(left=Side(style='medium'), right=Side(style='medium'), top=Side(style='medium'), bottom=Side(style='medium'))
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    dotted_border = Border(left=Side(style='hair'), right=Side(style='hair'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    def apply_border(range_str, border_style):
+        for row in ws[range_str]:
+            for cell in row:
+                cell.border = border_style
+
+    # 열 너비 설정
+    ws.column_dimensions['A'].width = 5
+    ws.column_dimensions['B'].width = 12
+    ws.column_dimensions['C'].width = 15
+    for col in ['D','E','F','G','H','I','J','K','L','M']:
+        ws.column_dimensions[col].width = 12
+
+    # 1. 결재란
+    approvers = ["팀장", "본부장", "관리본부", "대표이사"]
+    ws.merge_cells('I1:I3')
+    ws['I1'] = "결\n\n재"
+    ws['I1'].alignment = align_c
+    ws['I1'].border = thin_border
+    
+    for i, app in enumerate(approvers):
+        col = chr(ord('J') + i)
+        ws[f'{col}1'] = app
+        ws[f'{col}1'].alignment = align_c
+        ws[f'{col}2'] = ""
+        ws[f'{col}3'] = " / "
+        ws[f'{col}3'].alignment = align_c
+        apply_border(f'{col}1:{col}3', thin_border)
+        
+    ws.row_dimensions[2].height = 30
+
+    # 2. 타이틀
+    y, m = year_month.split('/')
+    ws.merge_cells('C3:H3')
+    ws['C3'] = f"㈜밀버스 {y}년 {m}월 경비 사용내역"
+    ws['C3'].font = font_title
+    ws['C3'].alignment = align_c
+
+    # 3. 표 헤더 세팅
+    ws.merge_cells('A4:A6'); ws['A4'] = "순번"; ws['A4'].fill = fill_blue
+    ws.merge_cells('B4:B6'); ws['B4'] = "이름"; ws['B4'].fill = fill_blue
+    ws.merge_cells('C4:C6'); ws['C4'] = "경비\n사용금액"; ws['C4'].fill = fill_blue
+    
+    ws.merge_cells('D4:M4'); ws['D4'] = "상 세 내 역"; ws['D4'].fill = fill_grey
+
+    # 서식 기준 카테고리 순서 (캡처 이미지 기준)
+    cat_order = ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]
+    
+    col_idx = 4
+    for cat in cat_order:
+        col_letter1 = chr(ord('A') + col_idx - 1)
+        col_letter2 = chr(ord('A') + col_idx)
+        ws.merge_cells(f'{col_letter1}5:{col_letter2}5')
+        ws[f'{col_letter1}5'] = cat
+        ws[f'{col_letter1}5'].fill = fill_grey
+        
+        ws[f'{col_letter1}6'] = "개인카드"
+        ws[f'{col_letter2}6'] = "법인카드"
+        ws[f'{col_letter1}6'].fill = fill_grey
+        ws[f'{col_letter2}6'].fill = fill_grey
+        
+        col_idx += 2
+
+    for row in ws['A4:M6']:
+        for cell in row:
+            cell.alignment = align_c
+            cell.font = font_bold
+            cell.border = thin_border
+
+    # 4. 데이터 채우기
+    # 항목별 합계 피벗 테이블 생성
+    pivot = df.pivot_table(index='이름', columns='항목', values='금액', aggfunc='sum', fill_value=0)
+    for c in cat_order:
+        if c not in pivot.columns:
+            pivot[c] = 0
+            
+    current_row = 7
+    total_sums = {c: 0 for c in cat_order}
+    total_all = 0
+    
+    for idx, (name, row) in enumerate(pivot.iterrows(), 1):
+        user_total = row.sum()
+        total_all += user_total
+        
+        ws.cell(row=current_row, column=1, value=idx).alignment = align_c
+        ws.cell(row=current_row, column=2, value=name).alignment = align_c
+        ws.cell(row=current_row, column=3, value=user_total).number_format = '#,##0'
+        
+        col_idx = 4
+        for cat in cat_order:
+            val = row[cat]
+            total_sums[cat] += val
+            # 개인카드 쪽에만 값 입력, 법인카드는 비워둠(하이픈)
+            ws.cell(row=current_row, column=col_idx, value=val if val > 0 else "-").number_format = '#,##0'
+            ws.cell(row=current_row, column=col_idx+1, value="-").alignment = align_c
+            col_idx += 2
+            
+        apply_border(f'A{current_row}:C{current_row}', thin_border)
+        # 점선 스타일 적용 (개인/법인 카드 사이)
+        for i in range(4, 14):
+            c_cell = ws.cell(row=current_row, column=i)
+            c_cell.border = dotted_border
+            
+        current_row += 1
+
+    # 5. 하단 합계 행
+    ws.merge_cells(f'A{current_row}:B{current_row}')
+    ws.cell(row=current_row, column=1, value="합   계").alignment = align_c
+    ws.cell(row=current_row, column=1).fill = fill_yellow
+    ws.cell(row=current_row, column=1).font = font_bold
+    
+    ws.cell(row=current_row, column=3, value=total_all).number_format = '#,##0'
+    ws.cell(row=current_row, column=3).fill = fill_yellow
+    ws.cell(row=current_row, column=3).font = font_bold
+    
+    col_idx = 4
+    for cat in cat_order:
+        ws.cell(row=current_row, column=col_idx, value=total_sums[cat] if total_sums[cat] > 0 else "-").number_format = '#,##0'
+        ws.cell(row=current_row, column=col_idx+1, value="-").alignment = align_c
+        ws.cell(row=current_row, column=col_idx).fill = fill_yellow
+        ws.cell(row=current_row, column=col_idx+1).fill = fill_yellow
+        ws.cell(row=current_row, column=col_idx).font = font_bold
+        col_idx += 2
+        
+    apply_border(f'A{current_row}:M{current_row}', thin_border)
+    
+    # 겉 테두리 굵게
+    apply_border(f'A4:M{current_row}', thick_border)
+    # 내부 얇은 테두리 덮어쓰기 보정
+    for row in ws[f'A5:M{current_row-1}']:
+        for cell in row:
+            if cell.column <= 3: cell.border = thin_border
+            else: cell.border = dotted_border
+            if cell.column == 13: cell.border = Border(right=Side(style='medium'), top=Side(style='dotted'), bottom=Side(style='dotted'))
+            
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+# ==========================================
 # 2. 메인 화면 구성
 # ==========================================
 st.title("경비 정산 관리자 대시보드")
@@ -418,6 +575,17 @@ if not raw_df.empty:
         pivot = pd.concat([pivot, total_row])
         
         st.dataframe(pivot.style.format("{:,.0f}원"), use_container_width=True)
+        
+        # [신규] 팀 전체 월간 집계표 엑셀 다운로드 버튼
+        st.write("")
+        agg_excel_io = generate_team_aggregate_excel(display_df, sel_team, year_month)
+        t_month = year_month.replace("/", "")
+        st.download_button(
+            label=f"📈 [{sel_team}] 월간 집계표 엑셀 다운로드",
+            data=agg_excel_io.getvalue(),
+            file_name=f"{t_month}_월간경비집계_{sel_team}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
 
@@ -427,7 +595,6 @@ if not raw_df.empty:
     c1, c2 = st.columns([1, 3])
     sel_user = c1.selectbox("조회 대상자 선택", sorted(display_df['이름'].dropna().unique()), label_visibility="collapsed")
     
-    # [수정] 결제일자 기준으로 리스트 정렬 (사용자 앱과 동일한 흐름 확보)
     user_detail = display_df[display_df['이름'] == sel_user].sort_values(by='결제일자')
     
     user_proj_dates = user_detail['수행일자'].unique()
@@ -468,9 +635,9 @@ if not raw_df.empty:
                         with st.popover("배달"):
                             st.image(del_url, width=400)
 
-    # --- 3. [새로 추가된 기능] 관리자 전용 문서 일괄 다운로드 ---
+    # --- 3. 관리자 전용 개인 문서 일괄 다운로드 ---
     st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
-    st.markdown("<h3 style='margin-bottom: 1rem;'>해당 직원 정산서 다운로드</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-bottom: 1rem;'>해당 직원 개인 정산서 다운로드</h3>", unsafe_allow_html=True)
     st.caption("클라우드(S3)에 저장된 증빙 이미지를 취합하여 사용자가 생성했던 것과 완벽히 동일한 서식의 엑셀과 워드 파일을 생성합니다.")
 
     doc_key = f"doc_{sel_user}_{year_month}"
@@ -483,7 +650,6 @@ if not raw_df.empty:
                 main_img = None
                 del_img = None
 
-                # S3에서 이미지 다운로드 후 PIL 객체로 변환
                 m_url = get_presigned_url(row.get('증빙URL'))
                 if m_url:
                     try:
@@ -498,7 +664,6 @@ if not raw_df.empty:
                         if res.status_code == 200: del_img = Image.open(io.BytesIO(res.content))
                     except: pass
 
-                # 사용자 앱과 완벽히 동일한 구조체(expense_items) 생성
                 expense_items.append({
                     '결제일자': row.get('결제일자', ''),
                     '사용처': row.get('사용처', ''),
@@ -512,7 +677,6 @@ if not raw_df.empty:
             excel_io = generate_excel_form(expense_items, sel_user)
             word_io = generate_receipts_word(expense_items)
 
-            # 생성 완료 후 세션에 임시 저장하여 다운로드 버튼 활성화
             st.session_state[f"excel_{doc_key}"] = excel_io.getvalue() if excel_io else None
             st.session_state[f"word_{doc_key}"] = word_io.getvalue() if word_io else None
 
@@ -520,10 +684,10 @@ if not raw_df.empty:
         c_ex, c_wd = st.columns(2)
         target_m = year_month.replace("/", "")
         with c_ex:
-            st.download_button("📊 엑셀 정산서 다운로드", data=st.session_state[f"excel_{doc_key}"], file_name=f"{sel_user}_경비지급신청서_{target_m}.xlsx", use_container_width=True)
+            st.download_button("📊 개인 엑셀 정산서 다운로드", data=st.session_state[f"excel_{doc_key}"], file_name=f"{sel_user}_경비지급신청서_{target_m}.xlsx", use_container_width=True)
         with c_wd:
             if st.session_state[f"word_{doc_key}"]:
-                st.download_button("📝 증빙자료(Word) 다운로드", data=st.session_state[f"word_{doc_key}"], file_name=f"{sel_user}_증빙자료_{target_m}.docx", use_container_width=True)
+                st.download_button("📝 개인 증빙자료(Word) 다운로드", data=st.session_state[f"word_{doc_key}"], file_name=f"{sel_user}_증빙자료_{target_m}.docx", use_container_width=True)
 
 else:
     st.info("해당 월에 제출된 정산 데이터가 없습니다.", icon="📂")
