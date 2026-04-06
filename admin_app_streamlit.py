@@ -382,160 +382,248 @@ def generate_receipts_word(expense_items):
     return output
 
 # ==========================================
-# 문서 생성 모듈 3: [신규] 월간 팀별 전체 집계표 엑셀
+# 문서 생성 모듈 3: [디테일 완벽 적용] 월간 팀별 전체 집계표 엑셀
 # ==========================================
 def generate_team_aggregate_excel(df, team_name, year_month):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"월간 경비 집계 ({team_name})"
 
-    # 스타일 정의
+    # --- 스타일 정의 ---
     align_c = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    align_r = Alignment(horizontal='right', vertical='center')
     font_bold = Font(bold=True)
-    font_title = Font(name='맑은 고딕', size=14, bold=True)
+    font_title = Font(name='맑은 고딕', size=16, bold=True)
+    font_header = Font(name='맑은 고딕', size=10, bold=True)
+    font_data = Font(name='맑은 고딕', size=10)
     
-    fill_blue = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    fill_grey = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    # 색상
+    fill_blue = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
+    fill_grey = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
     fill_yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
+    # 테두리
     thick_border = Border(left=Side(style='medium'), right=Side(style='medium'), top=Side(style='medium'), bottom=Side(style='medium'))
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    dotted_border = Border(left=Side(style='hair'), right=Side(style='hair'), top=Side(style='thin'), bottom=Side(style='thin'))
+    dotted_border = Border(left=Side(style='dotted'), right=Side(style='dotted'), top=Side(style='thin'), bottom=Side(style='thin'))
+    # A열 대각선 전용 테두리
+    diag_border = Border(left=Side(style='medium'), right=Side(style='thin'), top=Side(style='medium'), bottom=Side(style='medium'), diagonal=Side(style='thin'), diagonalDown=True)
 
     def apply_border(range_str, border_style):
         for row in ws[range_str]:
             for cell in row:
                 cell.border = border_style
 
-    # 열 너비 설정
-    ws.column_dimensions['A'].width = 5
-    ws.column_dimensions['B'].width = 12
-    ws.column_dimensions['C'].width = 15
+    # --- 열 너비 & 행 높이 설정 ---
+    ws.column_dimensions['A'].width = 5   # 순번 (대각선용)
+    ws.column_dimensions['B'].width = 10  # 이름
+    ws.column_dimensions['C'].width = 15  # 총금액
     for col in ['D','E','F','G','H','I','J','K','L','M']:
-        ws.column_dimensions[col].width = 12
+        ws.column_dimensions[col].width = 11.5
+        
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 30
+    ws.row_dimensions[3].height = 20
+    ws.row_dimensions[4].height = 25
+    ws.row_dimensions[5].height = 20
 
-    # 1. 결재란
+    # --- 1. 우측 상단 결재란 (1행) ---
     approvers = ["팀장", "본부장", "관리본부", "대표이사"]
-    ws.merge_cells('I1:I3')
+    ws.merge_cells('I1:I2')
     ws['I1'] = "결\n\n재"
     ws['I1'].alignment = align_c
+    ws['I1'].font = font_header
     ws['I1'].border = thin_border
+    
+    ws['I3'] = "날짜"
+    ws['I3'].alignment = align_c
+    ws['I3'].font = font_header
+    ws['I3'].border = thin_border
     
     for i, app in enumerate(approvers):
         col = chr(ord('J') + i)
         ws[f'{col}1'] = app
         ws[f'{col}1'].alignment = align_c
-        ws[f'{col}2'] = ""
-        ws[f'{col}3'] = " / "
-        ws[f'{col}3'].alignment = align_c
-        apply_border(f'{col}1:{col}3', thin_border)
+        ws[f'{col}1'].font = font_header
         
-    ws.row_dimensions[2].height = 30
+        ws[f'{col}2'] = "" # 서명란 비워두기
+        
+        ws[f'{col}3'] = "  /  " # 날짜란
+        ws[f'{col}3'].alignment = align_c
+        ws[f'{col}3'].font = font_header
+        apply_border(f'{col}1:{col}3', thin_border)
 
-    # 2. 타이틀
+    # --- 2. 메인 타이틀 (2행) ---
     y, m = year_month.split('/')
-    ws.merge_cells('C3:H3')
-    ws['C3'] = f"㈜밀버스 {y}년 {m}월 경비 사용내역"
-    ws['C3'].font = font_title
-    ws['C3'].alignment = align_c
+    ws.merge_cells('C2:H2')
+    ws['C2'] = f"㈜밀버스 {y}년 {int(m)}월 경비 사용내역"
+    ws['C2'].font = font_title
+    ws['C2'].alignment = align_c
 
-    # 3. 표 헤더 세팅
-    ws.merge_cells('A4:A6'); ws['A4'] = "순번"; ws['A4'].fill = fill_blue
-    ws.merge_cells('B4:B6'); ws['B4'] = "이름"; ws['B4'].fill = fill_blue
-    ws.merge_cells('C4:C6'); ws['C4'] = "경비\n사용금액"; ws['C4'].fill = fill_blue
+    # --- 3. 표 헤더 세팅 (3~5행) ---
     
-    ws.merge_cells('D4:M4'); ws['D4'] = "상 세 내 역"; ws['D4'].fill = fill_grey
+    # A열: 사선 처리 (가장 복잡한 부분)
+    ws.merge_cells('A3:A5')
+    ws['A3'] = ""
+    ws['A3'].border = diag_border
+    ws['A3'].fill = fill_blue
+    # A열 대각선 때문에 B3~B5 병합으로 대체 불가능하여 A열 병합 후 테두리만 사선으로 줍니다.
 
-    # 서식 기준 카테고리 순서 (캡처 이미지 기준)
-    cat_order = ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]
+    ws.merge_cells('B3:B5'); ws['B3'] = "이름"; ws['B3'].fill = fill_blue; ws['B3'].font = font_header; ws['B3'].alignment = align_c
+    ws.merge_cells('C3:C5'); ws['C3'] = "경비\n사용금액"; ws['C3'].fill = fill_blue; ws['C3'].font = font_header; ws['C3'].alignment = align_c
     
+    ws.merge_cells('D3:M3'); ws['D3'] = "상 세 내 역"; ws['D3'].fill = fill_grey; ws['D3'].font = font_header; ws['D3'].alignment = align_c
+
+    cat_order = ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트 비용"]
     col_idx = 4
     for cat in cat_order:
         col_letter1 = chr(ord('A') + col_idx - 1)
         col_letter2 = chr(ord('A') + col_idx)
-        ws.merge_cells(f'{col_letter1}5:{col_letter2}5')
-        ws[f'{col_letter1}5'] = cat
-        ws[f'{col_letter1}5'].fill = fill_grey
         
-        ws[f'{col_letter1}6'] = "개인카드"
-        ws[f'{col_letter2}6'] = "법인카드"
-        ws[f'{col_letter1}6'].fill = fill_grey
-        ws[f'{col_letter2}6'].fill = fill_grey
+        # 카테고리명 (4행)
+        ws.merge_cells(f'{col_letter1}4:{col_letter2}4')
+        ws[f'{col_letter1}4'] = cat
+        ws[f'{col_letter1}4'].fill = fill_grey
+        ws[f'{col_letter1}4'].font = font_header
+        ws[f'{col_letter1}4'].alignment = align_c
+        
+        # 개인/법인 카드 (5행)
+        ws[f'{col_letter1}5'] = "개인카드"
+        ws[f'{col_letter2}5'] = "법인카드"
+        ws[f'{col_letter1}5'].fill = fill_grey
+        ws[f'{col_letter2}5'].fill = fill_grey
+        ws[f'{col_letter1}5'].font = font_header
+        ws[f'{col_letter2}5'].font = font_header
+        ws[f'{col_letter1}5'].alignment = align_c
+        ws[f'{col_letter2}5'].alignment = align_c
         
         col_idx += 2
 
-    for row in ws['A4:M6']:
-        for cell in row:
-            cell.alignment = align_c
-            cell.font = font_bold
-            cell.border = thin_border
+    # 헤더 테두리 적용 (A열 사선 제외)
+    apply_border('B3:M5', thin_border)
+    
+    # 최상단 테두리 굵게
+    for col in range(1, 14):
+        ws.cell(row=3, column=col).border = Border(top=Side(style='medium'), bottom=Side(style='thin'), left=Side(style='thin'), right=Side(style='thin'))
 
-    # 4. 데이터 채우기
-    # 항목별 합계 피벗 테이블 생성
+    # --- 4. 데이터 채우기 (6행부터) ---
     pivot = df.pivot_table(index='이름', columns='항목', values='금액', aggfunc='sum', fill_value=0)
-    for c in cat_order:
-        if c not in pivot.columns:
-            pivot[c] = 0
+    for c in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]:
+        if c not in pivot.columns: pivot[c] = 0
             
-    current_row = 7
-    total_sums = {c: 0 for c in cat_order}
+    current_row = 6
+    total_sums = {c: 0 for c in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]}
     total_all = 0
     
     for idx, (name, row) in enumerate(pivot.iterrows(), 1):
         user_total = row.sum()
         total_all += user_total
         
+        # 순번 & 이름
         ws.cell(row=current_row, column=1, value=idx).alignment = align_c
+        ws.cell(row=current_row, column=1).font = font_header
         ws.cell(row=current_row, column=2, value=name).alignment = align_c
-        ws.cell(row=current_row, column=3, value=user_total).number_format = '#,##0'
+        ws.cell(row=current_row, column=2).font = font_header
+        
+        # 경비사용금액 (총액)
+        amt_cell = ws.cell(row=current_row, column=3, value=user_total if user_total > 0 else "-")
+        amt_cell.alignment = align_r if user_total > 0 else align_c
+        amt_cell.number_format = '#,##0'
+        amt_cell.font = font_data
         
         col_idx = 4
-        for cat in cat_order:
+        # 카테고리별 데이터 입력
+        for cat in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]:
             val = row[cat]
             total_sums[cat] += val
-            # 개인카드 쪽에만 값 입력, 법인카드는 비워둠(하이픈)
-            ws.cell(row=current_row, column=col_idx, value=val if val > 0 else "-").number_format = '#,##0'
-            ws.cell(row=current_row, column=col_idx+1, value="-").alignment = align_c
+            
+            # 개인카드 열 (데이터 입력)
+            p_cell = ws.cell(row=current_row, column=col_idx, value=val if val > 0 else "")
+            p_cell.alignment = align_r
+            p_cell.number_format = '#,##0'
+            p_cell.font = font_data
+            
+            # 법인카드 열 (하이픈)
+            b_cell = ws.cell(row=current_row, column=col_idx+1, value="")
+            b_cell.alignment = align_c
+            b_cell.font = font_data
+            
             col_idx += 2
             
-        apply_border(f'A{current_row}:C{current_row}', thin_border)
-        # 점선 스타일 적용 (개인/법인 카드 사이)
-        for i in range(4, 14):
-            c_cell = ws.cell(row=current_row, column=i)
-            c_cell.border = dotted_border
+        # 행 높이
+        ws.row_dimensions[current_row].height = 18
+        
+        # 행 단위 테두리 (점선/실선 완벽 구현)
+        for c in range(1, 14):
+            cell = ws.cell(row=current_row, column=c)
+            # 기본적으로 상하는 얇은 실선
+            top_b = Side(style='thin')
+            bottom_b = Side(style='thin')
+            left_b = Side(style='thin')
+            right_b = Side(style='thin')
+            
+            # 가장자리 굵은 선 처리
+            if c == 1: left_b = Side(style='medium')
+            if c == 13: right_b = Side(style='medium')
+            
+            # 상세내역 안쪽 세로선들은 모두 '점선(dotted)'
+            if c >= 4 and c < 13:
+                right_b = Side(style='dotted')
+            if c > 4:
+                left_b = Side(style='dotted')
+                
+            cell.border = Border(left=left_b, right=right_b, top=top_b, bottom=bottom_b)
             
         current_row += 1
 
-    # 5. 하단 합계 행
+    # --- 5. 하단 합계 행 ---
+    ws.row_dimensions[current_row].height = 20
     ws.merge_cells(f'A{current_row}:B{current_row}')
     ws.cell(row=current_row, column=1, value="합   계").alignment = align_c
     ws.cell(row=current_row, column=1).fill = fill_yellow
-    ws.cell(row=current_row, column=1).font = font_bold
+    ws.cell(row=current_row, column=1).font = font_header
     
-    ws.cell(row=current_row, column=3, value=total_all).number_format = '#,##0'
-    ws.cell(row=current_row, column=3).fill = fill_yellow
-    ws.cell(row=current_row, column=3).font = font_bold
+    # 총 합계
+    tot_cell = ws.cell(row=current_row, column=3, value=total_all)
+    tot_cell.number_format = '#,##0'
+    tot_cell.fill = fill_yellow
+    tot_cell.font = font_header
+    tot_cell.alignment = align_r
     
     col_idx = 4
-    for cat in cat_order:
-        ws.cell(row=current_row, column=col_idx, value=total_sums[cat] if total_sums[cat] > 0 else "-").number_format = '#,##0'
-        ws.cell(row=current_row, column=col_idx+1, value="-").alignment = align_c
-        ws.cell(row=current_row, column=col_idx).fill = fill_yellow
-        ws.cell(row=current_row, column=col_idx+1).fill = fill_yellow
-        ws.cell(row=current_row, column=col_idx).font = font_bold
+    for cat in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]:
+        # 카테고리별 합계 (개인카드 쪽)
+        c_cell = ws.cell(row=current_row, column=col_idx, value=total_sums[cat] if total_sums[cat] > 0 else "-")
+        c_cell.number_format = '#,##0'
+        c_cell.alignment = align_r if total_sums[cat] > 0 else align_c
+        c_cell.fill = fill_yellow
+        c_cell.font = font_header
+        
+        # 법인카드 쪽 (하이픈)
+        hyphen_cell = ws.cell(row=current_row, column=col_idx+1, value="-")
+        hyphen_cell.alignment = align_c
+        hyphen_cell.fill = fill_yellow
+        hyphen_cell.font = font_header
+        
         col_idx += 2
         
-    apply_border(f'A{current_row}:M{current_row}', thin_border)
-    
-    # 겉 테두리 굵게
-    apply_border(f'A4:M{current_row}', thick_border)
-    # 내부 얇은 테두리 덮어쓰기 보정
-    for row in ws[f'A5:M{current_row-1}']:
-        for cell in row:
-            if cell.column <= 3: cell.border = thin_border
-            else: cell.border = dotted_border
-            if cell.column == 13: cell.border = Border(right=Side(style='medium'), top=Side(style='dotted'), bottom=Side(style='dotted'))
+    # 합계 행 테두리 (가장자리 굵게, 위아래 굵게)
+    for c in range(1, 14):
+        cell = ws.cell(row=current_row, column=c)
+        left_b = Side(style='thin')
+        right_b = Side(style='thin')
+        
+        if c == 1: left_b = Side(style='medium')
+        if c == 13: right_b = Side(style='medium')
+        
+        if c >= 4 and c < 13: right_b = Side(style='dotted')
+        if c > 4: left_b = Side(style='dotted')
             
+        cell.border = Border(left=left_b, right=right_b, top=Side(style='medium'), bottom=Side(style='medium'))
+        
+    # --- 6. 눈금선 숨기기 (깔끔한 출력을 위해) ---
+    ws.sheet_view.showGridLines = False
+
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -576,7 +664,6 @@ if not raw_df.empty:
         
         st.dataframe(pivot.style.format("{:,.0f}원"), use_container_width=True)
         
-        # [신규] 팀 전체 월간 집계표 엑셀 다운로드 버튼
         st.write("")
         agg_excel_io = generate_team_aggregate_excel(display_df, sel_team, year_month)
         t_month = year_month.replace("/", "")
