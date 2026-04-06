@@ -166,14 +166,26 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-def analyze_receipt(uploaded_file, retries=1):
+def analyze_receipt(uploaded_file, retries=2): 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
         st.error("Secrets에 OPENAI_API_KEY가 없습니다.")
         return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0}
 
-    base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+    try:
+        img_for_api = Image.open(io.BytesIO(uploaded_file.getvalue()))
+        if img_for_api.mode != 'RGB':
+            img_for_api = img_for_api.convert('RGB')
+        
+        img_for_api.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+        
+        buffered = io.BytesIO()
+        img_for_api.save(buffered, format="JPEG", quality=85)
+        base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    except Exception as e:
+        return {"결제 날짜": "에러", "사용처": "이미지 압축 실패", "합계 금액": 0}
+
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
     prompt = """
@@ -197,11 +209,10 @@ def analyze_receipt(uploaded_file, retries=1):
     
     for attempt in range(retries + 1):
         try:
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=45)
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             
-            # API 제한 초과 등의 에러 방어력 향상
             if response.status_code != 200:
-                time.sleep(3)
+                time.sleep(2)
                 continue
                 
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
@@ -224,7 +235,7 @@ def analyze_receipt(uploaded_file, retries=1):
             
         except Exception as e:
             if attempt < retries:
-                time.sleep(3) # 실패 시 휴식 시간 증가
+                time.sleep(2)
                 continue
             break
             
@@ -618,16 +629,13 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         
     progress_bar = st.progress(0, text=f"총 {total_files}건의 이미지를 분석 중입니다...")
     
-    # =========================================================
-    # [핵심 변경] API 한도(Rate Limit) 방어를 위한 Batch 휴식 로직
-    # =========================================================
     for i, img_obj in enumerate(processed_images):
         original_file_name = img_obj.name.split('_word/media/')[0] if 'word/media/' in img_obj.name else img_obj.name
         assigned_cat = st.session_state.file_cat_map.get(original_file_name, st.session_state.selected_cat)
         
         res = analyze_receipt(img_obj) 
         
-        img = Image.open(img_obj)
+        img = Image.open(io.BytesIO(img_obj.getvalue())) 
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
         st.session_state.expense_items.append({
@@ -645,14 +653,13 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         progress_percentage = int(((i + 1) / total_files) * 100)
         
         if i < total_files - 1:
-            # 매 10번째 이미지를 처리하고 나면 20초 동안 카운트다운하며 푹 쉽니다.
             if (i + 1) % 10 == 0:
-                for sec in range(20, 0, -1):
-                    progress_bar.progress(progress_percentage, text=f"⚠️ 서버 과부하 방지를 위해 대기 중... {sec}초 후 재개 (현재 {i+1}건 완료)")
+                for sec in range(3, 0, -1):
+                    progress_bar.progress(progress_percentage, text=f"잠시 숨 고르기... {sec}초 후 재개 (현재 {i+1}건 완료)")
                     time.sleep(1)
             else:
                 progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
-                time.sleep(1.5) # 평소에는 1.5초 딜레이
+                time.sleep(0.5) 
                 
     st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
@@ -695,15 +702,27 @@ if st.session_state.expense_items:
         uid = item['id']
 
         with st.container(border=True):
-            input_cost = item['인식금액']
-            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost > 15000)
+            # ========================================================
+            # [핵심 수정] UI 렌더링 전 session_state에서 현재 선택값을 미리 확인
+            # ========================================================
+            cat_key = f"cat_{uid}"
+            amt_key = f"am_{uid}"
+            
+            # session_state에 값이 있으면(사용자가 변경했으면) 그 값을, 없으면 초기 분석된 값을 가져옵니다.
+            current_cat = st.session_state.get(cat_key, item['종류'])
+            current_amt = safe_int(st.session_state.get(amt_key, item['인식금액']))
+            
+            input_cost = current_amt
+            # 이제 과거의 item['종류']가 아니라 '현재 UI에 선택되어 있는 카테고리'를 기준으로 판별합니다.
+            is_high_cost_meal = (current_cat == "야근식대" and input_cost >= 15000)
 
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            item['종류'] = r1[0].selectbox(f"cat_{uid}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
+            # selectbox의 key 파라미터를 cat_key로 지정하여 Streamlit의 상태 관리와 자동 동기화합니다.
+            item['종류'] = r1[0].selectbox(cat_key, categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{uid}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['인식금액'] = r1[3].number_input(f"am_{uid}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['인식금액'] = r1[3].number_input(amt_key, value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
