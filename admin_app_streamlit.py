@@ -79,7 +79,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 설정 및 AWS S3 연동
+# 1. 설정, S3 연동 및 [팀별 고정 명단]
 # ==========================================
 try:
     AWS_ACCESS_KEY_ID = st.secrets["AWS_ACCESS_KEY_ID"]
@@ -91,6 +91,18 @@ except:
     st.stop()
 
 FIXED_CATEGORIES = ["야근식대", "야근교통비", "외근교통비", "프로젝트비용", "기타"]
+
+# [신규] 나중에 다른 팀 인원을 추가하실 때는 아래 양식에 맞춰 추가하시면 됩니다!
+TEAM_MEMBERS = {
+    "DX2본부": [
+        "송은주", "이재상", "이한새", "강윤희", "김정란", "이현지", 
+        "김광수", "정창호", "박형규", "김정민", "김지현", "최보영", 
+        "이은진", "손민우", "오상윤", "구대연", "이승규", "임성묵", 
+        "최무혁", "박주연", "안소희", "구재현", "심세은", "유수종"
+    ]
+    # "DX1본부": ["홍길동", "김철수"],
+    # "CRM본부": ["박영희"],
+}
 
 s3_client = boto3.client(
     's3', 
@@ -138,7 +150,7 @@ def get_presigned_url(full_url):
     return None
 
 # ==========================================
-# 문서 생성 모듈 1: 개인별 엑셀 폼 (기존 유지)
+# 문서 생성 모듈 1: 개인별 엑셀 폼
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -311,7 +323,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 문서 생성 모듈 2: 개인별 워드 영수증 모음 (기존 유지)
+# 문서 생성 모듈 2: 개인별 워드 영수증 모음
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -382,7 +394,7 @@ def generate_receipts_word(expense_items):
     return output
 
 # ==========================================
-# 문서 생성 모듈 3: [디테일 완벽 적용] 월간 팀별 전체 집계표 엑셀
+# 문서 생성 모듈 3: 월간 팀별 전체 집계표 엑셀 (미제출자 & 하이픈 포함)
 # ==========================================
 def generate_team_aggregate_excel(df, team_name, year_month):
     wb = openpyxl.Workbook()
@@ -440,7 +452,7 @@ def generate_team_aggregate_excel(df, team_name, year_month):
         ws.cell(row=1, column=col, value=app)
         ws.cell(row=3, column=col, value="  /  ")
 
-    # --- 2. 메인 타이틀 (결재란과 겹치지 않게 A1:H3에 여유롭게 병합) ---
+    # --- 2. 메인 타이틀 ---
     ws.merge_cells('A1:H3')
     y, m = year_month.split('/')
     ws['A1'] = f"㈜밀버스 {y}년 {int(m)}월 경비 사용내역"
@@ -448,7 +460,6 @@ def generate_team_aggregate_excel(df, team_name, year_month):
     ws['A1'].alignment = align_c
 
     # --- 3. 표 헤더 세팅 (4~6행) ---
-    # 헤더의 기본 배경색과 테두리 지정
     for r in range(4, 7):
         for c in range(1, 14):
             cell = ws.cell(row=r, column=c)
@@ -462,40 +473,44 @@ def generate_team_aggregate_excel(df, team_name, year_month):
     ws.merge_cells('C4:C6'); ws['C4'] = "경비\n사용금액"
     ws.merge_cells('D4:M4'); ws['D4'] = "상 세 내 역"
 
-    cat_order = ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트 비용"]
+    cat_order = ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"] # 띄어쓰기 주의
     col_idx = 4
-    for cat in cat_order:
+    for cat in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트 비용"]: # 보여질 텍스트
         ws.merge_cells(start_row=5, start_column=col_idx, end_row=5, end_column=col_idx+1)
         ws.cell(row=5, column=col_idx, value=cat)
         ws.cell(row=6, column=col_idx, value="개인카드")
         ws.cell(row=6, column=col_idx+1, value="법인카드")
         col_idx += 2
 
-    # [핵심 디테일] A4:A6 병합 셀에 사선(대각선) 긋기
+    # A4:A6 병합 셀 사선(대각선) 긋기
     ws['A4'].border = Border(top=thin, bottom=thin, left=thin, right=thin, diagonal=thin, diagonalDown=True)
 
-    # --- 4. 데이터 행 세팅 (7행부터) ---
-    # 개인/법인카드 사이는 점선(dotted), 부서 간은 실선(thin)을 그려주기 위한 컬럼별 테두리 딕셔너리
+    # --- 4. 데이터 행 세팅 (7행부터 미제출자 포함 로직 적용) ---
     col_borders = {
-        1: (thin, thin),
-        2: (thin, thin),
-        3: (thin, thin),
-        4: (thin, dotted),   # 야근교통비 개인
-        5: (dotted, thin),   # 야근교통비 법인
-        6: (thin, dotted),   # 야근식대 개인
-        7: (dotted, thin),   # 야근식대 법인
-        8: (thin, dotted),   # 외근교통비 개인
-        9: (dotted, thin),   # 외근교통비 법인
-        10: (thin, dotted),  # 기타 개인
-        11: (dotted, thin),  # 기타 법인
-        12: (thin, dotted),  # 프로젝트 개인
-        13: (dotted, thin)   # 프로젝트 법인
+        1: (thin, thin), 2: (thin, thin), 3: (thin, thin),
+        4: (thin, dotted), 5: (dotted, thin), 6: (thin, dotted), 7: (dotted, thin),
+        8: (thin, dotted), 9: (dotted, thin), 10: (thin, dotted), 11: (dotted, thin),
+        12: (thin, dotted), 13: (dotted, thin)
     }
 
-    pivot = df.pivot_table(index='이름', columns='항목', values='금액', aggfunc='sum', fill_value=0)
-    
+    # S3에서 긁어온 데이터로 1차 피벗 구성
+    pivot = df.pivot_table(index='이름', columns='항목', values='금액', aggfunc='sum', fill_value=0) if not df.empty else pd.DataFrame()
+    for c in cat_order:
+        if c not in pivot.columns: pivot[c] = 0
+
+    # [핵심] 고정 명단에 있는 인원들을 강제로 피벗에 추가 (미제출자는 전부 0원으로 됨)
+    if team_name in TEAM_MEMBERS:
+        all_members = TEAM_MEMBERS[team_name]
+        for m_name in all_members:
+            if m_name not in pivot.index:
+                pivot.loc[m_name] = 0 # 안 낸 사람은 0원 처리
+        # 명단 순서대로 재정렬
+        pivot = pivot.reindex(all_members).fillna(0)
+    else:
+        pivot = pivot.sort_index()
+
     current_row = 7
-    total_sums = {c: 0 for c in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]}
+    total_sums = {c: 0 for c in cat_order}
     total_all = 0
     
     for idx, (name, row) in enumerate(pivot.iterrows(), 1):
@@ -504,26 +519,31 @@ def generate_team_aggregate_excel(df, team_name, year_month):
         
         ws.cell(row=current_row, column=1, value=idx).alignment = align_c
         ws.cell(row=current_row, column=2, value=name).alignment = align_c
-        ws.cell(row=current_row, column=3, value=user_total if user_total > 0 else "-").number_format = '#,##0'
-        ws.cell(row=current_row, column=3).alignment = align_r if user_total > 0 else align_c
+        
+        # 총금액: 0원이면 "-" 출력, 아니면 숫자 서식
+        c3 = ws.cell(row=current_row, column=3, value=user_total if user_total > 0 else "-")
+        c3.alignment = align_r if user_total > 0 else align_c
+        if user_total > 0: c3.number_format = '#,##0'
         
         col_idx = 4
-        for cat in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]:
+        for cat in cat_order:
             val = row.get(cat, 0)
             total_sums[cat] += val
             
-            c_cell = ws.cell(row=current_row, column=col_idx, value=val if val > 0 else "")
-            c_cell.alignment = align_r
-            c_cell.number_format = '#,##0'
+            # 개인카드 열 (0원이면 "-" 출력)
+            p_cell = ws.cell(row=current_row, column=col_idx, value=val if val > 0 else "-")
+            p_cell.alignment = align_r if val > 0 else align_c
+            if val > 0: p_cell.number_format = '#,##0'
             
-            h_cell = ws.cell(row=current_row, column=col_idx+1, value="")
-            h_cell.alignment = align_c
+            # 법인카드 열 (무조건 하이픈)
+            b_cell = ws.cell(row=current_row, column=col_idx+1, value="-")
+            b_cell.alignment = align_c
             
             col_idx += 2
             
         ws.row_dimensions[current_row].height = 20
         
-        # 데이터 행 점선/실선 적용
+        # 데이터 행 테두리 및 폰트
         for c in range(1, 14):
             l_st, r_st = col_borders[c]
             ws.cell(row=current_row, column=c).border = Border(left=l_st, right=r_st, top=thin, bottom=thin)
@@ -535,20 +555,21 @@ def generate_team_aggregate_excel(df, team_name, year_month):
     ws.merge_cells(f'A{current_row}:B{current_row}')
     ws.cell(row=current_row, column=1, value="합   계").alignment = align_c
     
-    ws.cell(row=current_row, column=3, value=total_all).number_format = '#,##0'
-    ws.cell(row=current_row, column=3).alignment = align_r
+    ws.cell(row=current_row, column=3, value=total_all if total_all > 0 else "-").number_format = '#,##0'
+    ws.cell(row=current_row, column=3).alignment = align_r if total_all > 0 else align_c
     
     col_idx = 4
-    for cat in ["야근교통비", "야근식대", "외근교통비", "기타", "프로젝트비용"]:
-        ws.cell(row=current_row, column=col_idx, value=total_sums[cat] if total_sums[cat] > 0 else "-").number_format = '#,##0'
-        ws.cell(row=current_row, column=col_idx).alignment = align_r if total_sums[cat] > 0 else align_c
-        
+    for cat in cat_order:
+        # 합계 개인카드
+        tot_val = total_sums[cat]
+        ws.cell(row=current_row, column=col_idx, value=tot_val if tot_val > 0 else "-").number_format = '#,##0'
+        ws.cell(row=current_row, column=col_idx).alignment = align_r if tot_val > 0 else align_c
+        # 합계 법인카드
         ws.cell(row=current_row, column=col_idx+1, value="-").alignment = align_c
         col_idx += 2
 
     ws.row_dimensions[current_row].height = 22
     
-    # 합계 행 노란색 칠하기 및 점선/실선 테두리 마감
     for c in range(1, 14):
         cell = ws.cell(row=current_row, column=c)
         cell.fill = fill_yellow
@@ -556,7 +577,7 @@ def generate_team_aggregate_excel(df, team_name, year_month):
         l_st, r_st = col_borders[c]
         cell.border = Border(left=l_st, right=r_st, top=thin, bottom=thin)
 
-    # --- 6. 전체 표 외곽 굵은 테두리(Medium) 덧칠하기 (매우 중요) ---
+    # --- 6. 표 외곽 굵은 테두리(Medium) ---
     def apply_outer_thick_border(ws, min_row, max_row, min_col, max_col):
         for r in range(min_row, max_row + 1):
             for c in range(min_col, max_col + 1):
@@ -566,15 +587,12 @@ def generate_team_aggregate_excel(df, team_name, year_month):
                 l = medium if c == min_col else b.left
                 ri = medium if c == max_col else b.right
                 
-                # 기존 대각선 설정 유지
                 ws.cell(row=r, column=c).border = Border(top=t, bottom=bot, left=l, right=ri, diagonal=b.diagonal, diagonalDown=b.diagonalDown)
 
-    # 헤더(4~6행) 테두리 두껍게
+    # 헤더(4~6행) 및 전체 굵은 테두리
     apply_outer_thick_border(ws, 4, 6, 1, 13)
-    # 표 전체(4행~끝) 테두리 두껍게
     apply_outer_thick_border(ws, 4, current_row, 1, 13)
 
-    # 엑셀의 거슬리는 기본 눈금선 숨김 처리
     ws.sheet_view.showGridLines = False
 
     output = io.BytesIO()
@@ -605,7 +623,23 @@ if not raw_df.empty:
     st.markdown(f"<h3 style='margin-bottom: 1rem;'>{year_month} [{sel_team}] 집계 현황</h3>", unsafe_allow_html=True)
     
     with st.container(border=True):
-        pivot = display_df.pivot_table(index=['팀명', '이름'], columns='항목', values='금액', aggfunc='sum', fill_value=0)
+        pivot = display_df.pivot_table(index=['팀명', '이름'], columns='항목', values='금액', aggfunc='sum', fill_value=0) if not display_df.empty else pd.DataFrame()
+        
+        # [UI 변경] 화면 표에도 미제출자 0원으로 출력되도록 삽입
+        if sel_team == "전체":
+            for t_name, members in TEAM_MEMBERS.items():
+                for m in members:
+                    if (t_name, m) not in pivot.index:
+                        pivot.loc[(t_name, m), :] = 0
+            pivot = pivot.sort_index()
+        elif sel_team in TEAM_MEMBERS:
+            members = TEAM_MEMBERS[sel_team]
+            for m in members:
+                if (sel_team, m) not in pivot.index:
+                    pivot.loc[(sel_team, m), :] = 0
+            # 명단 순서대로 화면에도 표시
+            pivot = pivot.reindex([(sel_team, m) for m in members]).fillna(0)
+
         for cat in FIXED_CATEGORIES:
             if cat not in pivot.columns: pivot[cat] = 0
         pivot = pivot[FIXED_CATEGORIES]
@@ -633,7 +667,9 @@ if not raw_df.empty:
     st.markdown("<h3 style='margin-bottom: 1rem;'>상세 내역 및 증빙 검토</h3>", unsafe_allow_html=True)
     
     c1, c2 = st.columns([1, 3])
-    sel_user = c1.selectbox("조회 대상자 선택", sorted(display_df['이름'].dropna().unique()), label_visibility="collapsed")
+    # 사용자가 제출한 사람만 선택할 수 있도록 유지 (미제출자는 조회할 내역이 없으므로)
+    submitted_users = sorted(display_df['이름'].dropna().unique())
+    sel_user = c1.selectbox("조회 대상자 선택", submitted_users, label_visibility="collapsed")
     
     user_detail = display_df[display_df['이름'] == sel_user].sort_values(by='결제일자')
     
