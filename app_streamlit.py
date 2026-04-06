@@ -696,7 +696,7 @@ if st.session_state.expense_items:
 
         with st.container(border=True):
             input_cost = item['인식금액']
-            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
+            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost > 15000)
 
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
