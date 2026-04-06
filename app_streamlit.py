@@ -724,7 +724,7 @@ if st.session_state.expense_items:
             
             # UI 위젯에서 방금 막 입력받은 최신 값을 기준으로 판별
             input_cost = item['인식금액']
-            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
+            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost > 15000)
             
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
