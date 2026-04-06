@@ -252,6 +252,8 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     s3_client = boto3.client('s3', aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"], aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"], region_name=aws_region)
 
     for idx, item in enumerate(expense_items):
+        # 0원 프로젝트비용 저장 제외 로직은 유지하되, 화면에 표시된 최신 값을 반영하도록
+        # 여기서는 item 딕셔너리에 저장된 값을 기준으로 함.
         final_amt = item.get('_effective_cost', 0)
         if final_amt == 0 and item['종류'] == "프로젝트비용":
             continue
@@ -678,6 +680,7 @@ if st.session_state.expense_items:
     
     limit_exceeded = False
     for i in st.session_state.expense_items:
+        # 합계 계산 시에는 세션값이 아닌 item 저장값 사용 (이 시점엔 이미 UI 동기화가 끝남)
         if i['종류'] == "프로젝트비용":
             if current_proj_total + i['인식금액'] > limit:
                 limit_exceeded = True
@@ -704,19 +707,24 @@ if st.session_state.expense_items:
         with st.container(border=True):
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            # ========================================================
-            # [핵심 수정] 위젯을 먼저 렌더링하고, 반환된 '최신값'을 즉시 업데이트!
-            # ========================================================
-            item['종류'] = r1[0].selectbox(f"cat_{uid}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
+            # [핵심] 위젯 렌더링과 동시에 item에 값 즉각 반영
+            cat_key = f"cat_{uid}"
+            amt_key = f"am_{uid}"
+            
+            # session_state에 해당 키가 없다면 초기 item 값을 기본값으로 세팅
+            if cat_key not in st.session_state:
+                st.session_state[cat_key] = item['종류']
+            if amt_key not in st.session_state:
+                st.session_state[amt_key] = safe_int(item['인식금액'])
+                
+            item['종류'] = r1[0].selectbox("카테고리", categories, key=cat_key, label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{uid}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['인식금액'] = r1[3].number_input(f"am_{uid}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['인식금액'] = r1[3].number_input("금액", step=100, key=amt_key, label_visibility="collapsed", disabled=st.session_state.submitted)
             
-            # 방금 막 받아온 따끈따끈한 최신값을 기준으로 조건 판별
+            # UI 위젯에서 방금 막 입력받은 최신 값을 기준으로 판별
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
-            
-            # --------------------------------------------------------
             
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
@@ -746,7 +754,7 @@ if st.session_state.expense_items:
             if is_high_cost_meal:
                 r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
             else:
-                # 야근식대가 아니거나 15000원 미만이면 배달비 이미지를 지우고 비고칸 표시
+                # 조건 미달 시 배달비 이미지 초기화 (휴지통 기능)
                 item['배달비_이미지_display'] = None
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
@@ -757,7 +765,7 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
-            # 최신값 기준으로 하단 증빙란 렌더링을 결정
+            # 최신 값을 바탕으로 증빙 칸 렌더링 여부를 즉각 결정
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
