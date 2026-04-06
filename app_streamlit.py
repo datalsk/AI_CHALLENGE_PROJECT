@@ -10,7 +10,8 @@ import time
 import calendar
 import uuid
 import openpyxl
-from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
+import zipfile # [추가] Word 내부 이미지 추출을 위한 모듈
+from openpyxl.styles import Alignment, Font, Border, Side, PatternFill, Protection
 from openpyxl.drawing.image import Image as ExcelImage
 from datetime import datetime
 from PIL import Image, ImageDraw
@@ -189,7 +190,7 @@ def analyze_receipt(uploaded_file, retries=1):
         "temperature": 0.0, 
         "messages": [
             {"role": "system", "content": "너는 영수증 데이터를 기계처럼 정확하게 추출하는 시스템이야."},
-            {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:{uploaded_file.type};base64,{base64_image}"}}]}
+            {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
         ], 
         "response_format": { "type": "json_object" }
     }
@@ -317,7 +318,6 @@ def generate_excel_form(expense_items, user_name):
     ws['E1'].alignment = align_center
     apply_border_to_range('E1:E3') 
     
-    # 결재란 서명 공간 높이 확보
     ws.row_dimensions[2].height = 45 
 
     for idx, approver in enumerate(approvers):
@@ -374,13 +374,10 @@ def generate_excel_form(expense_items, user_name):
         apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
         
-        # 배달비 증빙 라인 추가
         if item.get('배달비_이미지_display'):
             ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
-            
             delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
-            
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
             ws.cell(row=current_row, column=4, value=0).alignment = align_right 
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
@@ -412,10 +409,6 @@ def generate_excel_form(expense_items, user_name):
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
 
-    # ===================================================
-    # [핵심] 날짜 행 높이를 키우고 로고를 그 안에 맞게 삽입
-    # ===================================================
-    # 날짜가 들어간 행의 높이를 로고가 쏙 들어갈 수 있도록 넉넉히(40 포인트) 늘려줍니다.
     ws.row_dimensions[current_row].height = 40 
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -431,14 +424,18 @@ def generate_excel_form(expense_items, user_name):
                 img_byte_arr.seek(0)
             
             logo_img = ExcelImage(img_byte_arr)
-            # 행 높이(40)에 딱 맞도록 이미지 높이를 40으로 맞춥니다.
             logo_img.width = 160  
             logo_img.height = 40
             
-            # 행이 몇 개가 되든 상관없이, 동적으로 늘어난 날짜 행(current_row)의 G열에 찰떡같이 삽입
             ws.add_image(logo_img, f"G{current_row}")
         except Exception as e:
             print(f"로고 삽입 에러 발생: {e}")
+
+    for row in ws['F2:I3']:
+        for cell in row:
+            cell.protection = Protection(locked=False)
+            
+    ws.protection.sheet = True
 
     output = io.BytesIO()
     wb.save(output)
@@ -446,7 +443,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 영수증 WORD 문서 생성 - 2x3 (총 6칸) 빈 페이지 버그 해결
+# 영수증 WORD 문서 생성 - 2x3 (총 6칸)
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -519,11 +516,20 @@ def generate_receipts_word(expense_items):
     output.seek(0)
     return output
 
+# [추가] 추출된 이미지 바이트 데이터를 분석 함수(analyze_receipt) 및 화면 표시에 호환되게 감싸는 클래스
+class MockFile(io.BytesIO):
+    def __init__(self, name, data):
+        super().__init__(data)
+        self.name = name
+        self.type = "image/png" if name.lower().endswith('.png') else "image/jpeg"
+    def getvalue(self):
+        return super().getvalue()
+
 # ==========================================
 # 2. 메인 UI 및 사이드바 로직
 # ==========================================
 st.title("경비 정산")
-st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증을 업로드하면 AI가 이미지 속 텍스트를 인식합니다.</p>", unsafe_allow_html=True)
+st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증 이미지 또는 <b>영수증이 포함된 Word(.docx) 파일</b>을 업로드하면 AI가 인식합니다.</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>제출자 정보</h3>", unsafe_allow_html=True)
@@ -563,7 +569,8 @@ for i, cat in enumerate(categories):
 
 st.write("") 
 
-uploaded_files = st.file_uploader("증빙 자료(영수증) 업로드", accept_multiple_files=True, key=f"receipt_uploader_{st.session_state.uploader_key}")
+# [수정] 업로드 허용 파일 형식에 docx 추가
+uploaded_files = st.file_uploader("증빙 자료(이미지 또는 Word 문서) 업로드", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'docx'], key=f"receipt_uploader_{st.session_state.uploader_key}")
 
 if uploaded_files:
     current_files = [f.name for f in uploaded_files]
@@ -579,17 +586,52 @@ if uploaded_files:
 else:
     st.session_state.file_cat_map.clear()
 
-if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 입력", type="primary", use_container_width=True):
+if uploaded_files and st.button("파일 자동 입력 시작", type="primary", use_container_width=True):
     st.session_state.submitted = False 
     
-    total_files = len(uploaded_files)
-    progress_bar = st.progress(0, text="AI가 영수증 데이터를 추출하고 있습니다...")
+    # ==========================================
+    # [핵심] 일반 이미지와 Word 문서 속 이미지를 평탄화(Flatten) 처리
+    # ==========================================
+    processed_images = []
     
-    for i, f in enumerate(uploaded_files):
-        assigned_cat = st.session_state.file_cat_map.get(f.name, st.session_state.selected_cat)
-        res = analyze_receipt(f) 
+    for f in uploaded_files:
+        if f.name.lower().endswith('.docx'):
+            try:
+                # ZipFile을 이용해 Word 내부 미디어 폴더 강제 추출
+                with zipfile.ZipFile(f) as docx_zip:
+                    media_files = [name for name in docx_zip.namelist() if name.startswith('word/media/') and name.lower().endswith(('.png', '.jpg', '.jpeg'))]
+                    for img_name in media_files:
+                        img_bytes = docx_zip.read(img_name)
+                        
+                        # Word 문서 내부의 원본 이미지 이름(image1.png 등)을 추출
+                        extracted_name = f"{f.name}_{img_name.split('/')[-1]}"
+                        
+                        # 추출된 바이트 데이터를 처리 가능한 파일 객체 형태로 포장
+                        mock_file = MockFile(extracted_name, img_bytes)
+                        processed_images.append(mock_file)
+            except Exception as e:
+                st.error(f"{f.name} 파일에서 이미지를 추출하는 데 실패했습니다.")
+        else:
+            # 일반 이미지 파일은 그대로 리스트에 추가
+            processed_images.append(f)
+            
+    total_files = len(processed_images)
+    
+    if total_files == 0:
+        st.warning("분석할 수 있는 이미지가 없습니다.")
+        st.stop()
         
-        img = Image.open(f)
+    progress_bar = st.progress(0, text=f"총 {total_files}건의 이미지를 분석 중입니다...")
+    
+    for i, img_obj in enumerate(processed_images):
+        # 원본 파일명 기반 매핑 (Word 추출 이미지는 현재 선택된 카테고리를 따름)
+        original_file_name = img_obj.name.split('_word/media/')[0] if 'word/media/' in img_obj.name else img_obj.name
+        assigned_cat = st.session_state.file_cat_map.get(original_file_name, st.session_state.selected_cat)
+        
+        # 분석 함수 호출 (img_obj 내부 데이터를 넘김)
+        res = analyze_receipt(img_obj) 
+        
+        img = Image.open(img_obj)
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
         st.session_state.expense_items.append({
@@ -605,7 +647,7 @@ if uploaded_files and st.button(f"총 {len(uploaded_files)}건 영수증 자동 
         })
         
         if i < total_files - 1:
-            time.sleep(3) 
+            time.sleep(3) # AI 과부하 방지 3초 딜레이
             
         progress_percentage = int(((i + 1) / total_files) * 100)
         progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
