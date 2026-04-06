@@ -702,27 +702,21 @@ if st.session_state.expense_items:
         uid = item['id']
 
         with st.container(border=True):
-            # ========================================================
-            # [핵심 수정] UI 렌더링 전 session_state에서 현재 선택값을 미리 확인
-            # ========================================================
-            cat_key = f"cat_{uid}"
-            amt_key = f"am_{uid}"
-            
-            # session_state에 값이 있으면(사용자가 변경했으면) 그 값을, 없으면 초기 분석된 값을 가져옵니다.
-            current_cat = st.session_state.get(cat_key, item['종류'])
-            current_amt = safe_int(st.session_state.get(amt_key, item['인식금액']))
-            
-            input_cost = current_amt
-            # 이제 과거의 item['종류']가 아니라 '현재 UI에 선택되어 있는 카테고리'를 기준으로 판별합니다.
-            is_high_cost_meal = (current_cat == "야근식대" and input_cost >= 15000)
-
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            # selectbox의 key 파라미터를 cat_key로 지정하여 Streamlit의 상태 관리와 자동 동기화합니다.
-            item['종류'] = r1[0].selectbox(cat_key, categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
+            # ========================================================
+            # [핵심 수정] 위젯을 먼저 렌더링하고, 반환된 '최신값'을 즉시 업데이트!
+            # ========================================================
+            item['종류'] = r1[0].selectbox(f"cat_{uid}", categories, index=categories.index(item['종류']), label_visibility="collapsed", disabled=st.session_state.submitted)
             item['결제일자'] = r1[1].text_input(f"dt_{uid}", item['결제일자'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
-            item['인식금액'] = r1[3].number_input(amt_key, value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
+            item['인식금액'] = r1[3].number_input(f"am_{uid}", value=safe_int(item['인식금액']), step=100, label_visibility="collapsed", disabled=st.session_state.submitted)
+            
+            # 방금 막 받아온 따끈따끈한 최신값을 기준으로 조건 판별
+            input_cost = item['인식금액']
+            is_high_cost_meal = (item['종류'] == "야근식대" and input_cost >= 15000)
+            
+            # --------------------------------------------------------
             
             effective_cost = input_cost
             base_html = "<div style='display:flex; flex-direction:column; justify-content:center; height:36px; line-height:1.2;'>"
@@ -752,6 +746,7 @@ if st.session_state.expense_items:
             if is_high_cost_meal:
                 r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
             else:
+                # 야근식대가 아니거나 15000원 미만이면 배달비 이미지를 지우고 비고칸 표시
                 item['배달비_이미지_display'] = None
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
@@ -762,6 +757,7 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
+            # 최신값 기준으로 하단 증빙란 렌더링을 결정
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
