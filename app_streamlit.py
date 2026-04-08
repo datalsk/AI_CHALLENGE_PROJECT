@@ -166,7 +166,8 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-def analyze_receipt(uploaded_file, retries=2): 
+# [핵심 변경] 스마트 재시도 로직 도입 및 재시도 횟수 상향
+def analyze_receipt(uploaded_file, retries=3): 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
@@ -211,8 +212,12 @@ def analyze_receipt(uploaded_file, retries=2):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             
-            if response.status_code != 200:
-                time.sleep(2)
+            # [핵심] 서버가 너무 빠르다고 화낼 때 눈치껏 쉬어주는 지능형 대기 로직
+            if response.status_code == 429:
+                time.sleep(4 * (attempt + 1)) # 4초 -> 8초 -> 12초 점진적 대기
+                continue
+            elif response.status_code != 200:
+                time.sleep(3)
                 continue
                 
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
@@ -235,7 +240,7 @@ def analyze_receipt(uploaded_file, retries=2):
             
         except Exception as e:
             if attempt < retries:
-                time.sleep(2)
+                time.sleep(3 * (attempt + 1))
                 continue
             break
             
@@ -252,8 +257,6 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     s3_client = boto3.client('s3', aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"], aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"], region_name=aws_region)
 
     for idx, item in enumerate(expense_items):
-        # 0원 프로젝트비용 저장 제외 로직은 유지하되, 화면에 표시된 최신 값을 반영하도록
-        # 여기서는 item 딕셔너리에 저장된 값을 기준으로 함.
         final_amt = item.get('_effective_cost', 0)
         if final_amt == 0 and item['종류'] == "프로젝트비용":
             continue
@@ -445,10 +448,8 @@ def generate_excel_form(expense_items, user_name):
             logo_img = ExcelImage(img_byte_arr)
             logo_img.width = 160  
             logo_img.height = 40
-            
             ws.add_image(logo_img, f"G{current_row}")
-        except Exception as e:
-            print(f"로고 삽입 에러 발생: {e}")
+        except Exception as e: pass
 
     for row in ws['F2:I3']:
         for cell in row:
@@ -499,13 +500,11 @@ def generate_receipts_word(expense_items):
         for i in range(6):
             r_idx = i // 2 
             c_idx = i % 2  
-            
             table.rows[r_idx].height = Cm(9.0)
 
             if i < len(chunk):
                 img = chunk[i]
                 img_stream = io.BytesIO()
-
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
 
@@ -519,7 +518,6 @@ def generate_receipts_word(expense_items):
                 
                 img_w, img_h = img.size
                 ratio = img_w / img_h
-                
                 target_w_cm, target_h_cm = 9.0, 8.6
                 
                 if ratio > (target_w_cm / target_h_cm): 
@@ -655,13 +653,14 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         progress_percentage = int(((i + 1) / total_files) * 100)
         
         if i < total_files - 1:
+            # [변경] 딜레이 조절 (서버 방어막 회피용 안전 간격)
             if (i + 1) % 10 == 0:
-                for sec in range(3, 0, -1):
+                for sec in range(5, 0, -1):
                     progress_bar.progress(progress_percentage, text=f"잠시 숨 고르기... {sec}초 후 재개 (현재 {i+1}건 완료)")
                     time.sleep(1)
             else:
                 progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
-                time.sleep(0.5) 
+                time.sleep(1) 
                 
     st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
@@ -680,7 +679,6 @@ if st.session_state.expense_items:
     
     limit_exceeded = False
     for i in st.session_state.expense_items:
-        # 합계 계산 시에는 세션값이 아닌 item 저장값 사용 (이 시점엔 이미 UI 동기화가 끝남)
         if i['종류'] == "프로젝트비용":
             if current_proj_total + i['인식금액'] > limit:
                 limit_exceeded = True
@@ -707,11 +705,9 @@ if st.session_state.expense_items:
         with st.container(border=True):
             r1 = st.columns([1.7, 1.1, 1.6, 1.2, 1.0, 1.5, 0.4, 0.4], vertical_alignment="center")
             
-            # [핵심] 위젯 렌더링과 동시에 item에 값 즉각 반영
             cat_key = f"cat_{uid}"
             amt_key = f"am_{uid}"
             
-            # session_state에 해당 키가 없다면 초기 item 값을 기본값으로 세팅
             if cat_key not in st.session_state:
                 st.session_state[cat_key] = item['종류']
             if amt_key not in st.session_state:
@@ -722,7 +718,6 @@ if st.session_state.expense_items:
             item['사용처'] = r1[2].text_input(f"vn_{uid}", item['사용처'], label_visibility="collapsed", disabled=st.session_state.submitted)
             item['인식금액'] = r1[3].number_input("금액", step=100, key=amt_key, label_visibility="collapsed", disabled=st.session_state.submitted)
             
-            # UI 위젯에서 방금 막 입력받은 최신 값을 기준으로 판별
             input_cost = item['인식금액']
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost > 15000)
             
@@ -754,7 +749,6 @@ if st.session_state.expense_items:
             if is_high_cost_meal:
                 r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
             else:
-                # 조건 미달 시 배달비 이미지 초기화 (휴지통 기능)
                 item['배달비_이미지_display'] = None
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
@@ -765,7 +759,6 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
-            # 최신 값을 바탕으로 증빙 칸 렌더링 여부를 즉각 결정
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
                 
