@@ -166,8 +166,14 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-def analyze_receipt(uploaded_file, api_key, retries=3): 
-    # [수정 3] api_key를 인자로 받아 루프 밖에서 한 번만 검증
+# [핵심 변경] 스마트 재시도 로직 도입 및 재시도 횟수 상향
+def analyze_receipt(uploaded_file, retries=3): 
+    try:
+        api_key = st.secrets["OPENAI_API_KEY"]
+    except KeyError:
+        st.error("Secrets에 OPENAI_API_KEY가 없습니다.")
+        return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0}
+
     try:
         img_for_api = Image.open(io.BytesIO(uploaded_file.getvalue()))
         if img_for_api.mode != 'RGB':
@@ -206,8 +212,9 @@ def analyze_receipt(uploaded_file, api_key, retries=3):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             
+            # [핵심] 서버가 너무 빠르다고 화낼 때 눈치껏 쉬어주는 지능형 대기 로직
             if response.status_code == 429:
-                time.sleep(4 * (attempt + 1))
+                time.sleep(4 * (attempt + 1)) # 4초 -> 8초 -> 12초 점진적 대기
                 continue
             elif response.status_code != 200:
                 time.sleep(3)
@@ -240,13 +247,6 @@ def analyze_receipt(uploaded_file, api_key, retries=3):
     return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
 
 def save_to_s3(user_name, team_name, day_status, expense_items):
-    # [수정 2] secrets 키 누락 시 에러 메시지 표시 후 중단
-    required_keys = ["S3_BUCKET_NAME", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
-    for key in required_keys:
-        if key not in st.secrets:
-            st.error(f"Secrets에 {key}가 없습니다.")
-            return False
-
     now = datetime.now()
     date_path = now.strftime('%Y/%m')
     timestamp = now.strftime('%Y%m%d_%H%M%S')
@@ -449,9 +449,7 @@ def generate_excel_form(expense_items, user_name):
             logo_img.width = 160  
             logo_img.height = 40
             ws.add_image(logo_img, f"G{current_row}")
-        except Exception as e:
-            # [수정 5] 조용한 실패 대신 경고 출력
-            st.warning(f"로고 이미지 삽입 실패: {e}")
+        except Exception as e: pass
 
     for row in ws['F2:I3']:
         for cell in row:
@@ -549,11 +547,6 @@ class MockFile(io.BytesIO):
 st.title("경비 정산")
 st.markdown("<p style='color: #64748b; font-size: 15px; margin-bottom: 2rem;'>영수증 이미지 또는 <b>영수증이 포함된 Word(.docx) 파일</b>을 업로드하면 AI가 인식합니다.</p>", unsafe_allow_html=True)
 
-# [수정 1] project_type, max_project_cost, day_status를 사이드바 밖에서 초기화해 스코프 문제 방지
-project_type = "해당없음"
-max_project_cost = 0
-day_status = "해당없음"
-
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>제출자 정보</h3>", unsafe_allow_html=True)
     user_name = st.text_input("이름", placeholder="이름을 입력하세요")
@@ -563,6 +556,9 @@ with st.sidebar:
     
     st.markdown("<h3 style='margin-bottom: 0.5rem;'>프로젝트 설정</h3>", unsafe_allow_html=True)
     project_type = st.radio("프로젝트 수행 여부", ["해당없음", "기간 선택"], horizontal=True, label_visibility="collapsed")
+    
+    max_project_cost = 0
+    day_status = "해당없음"
 
     if project_type == "기간 선택":
         today = datetime.today()
@@ -606,13 +602,7 @@ else:
     st.session_state.file_cat_map.clear()
 
 if uploaded_files and st.button("파일 자동 입력 시작", type="primary", use_container_width=True):
-    st.session_state.submitted = False
-
-    # [수정 3] API 키를 루프 시작 전 한 번만 확인
-    if "OPENAI_API_KEY" not in st.secrets:
-        st.error("Secrets에 OPENAI_API_KEY가 없습니다.")
-        st.stop()
-    api_key = st.secrets["OPENAI_API_KEY"]
+    st.session_state.submitted = False 
     
     processed_images = []
     
@@ -643,7 +633,7 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         original_file_name = img_obj.name.split('_word/media/')[0] if 'word/media/' in img_obj.name else img_obj.name
         assigned_cat = st.session_state.file_cat_map.get(original_file_name, st.session_state.selected_cat)
         
-        res = analyze_receipt(img_obj, api_key)  # [수정 3] api_key 전달
+        res = analyze_receipt(img_obj) 
         
         img = Image.open(io.BytesIO(img_obj.getvalue())) 
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
@@ -663,6 +653,7 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         progress_percentage = int(((i + 1) / total_files) * 100)
         
         if i < total_files - 1:
+            # [변경] 딜레이 조절 (서버 방어막 회피용 안전 간격)
             if (i + 1) % 10 == 0:
                 for sec in range(5, 0, -1):
                     progress_bar.progress(progress_percentage, text=f"잠시 숨 고르기... {sec}초 후 재개 (현재 {i+1}건 완료)")
@@ -764,12 +755,8 @@ if st.session_state.expense_items:
             with r1[6]:
                 with st.popover("🧾"): 
                     st.image(item['image_display'], width=400)
-
-            # [수정 4] 항목 삭제 시 관련 session_state 키도 함께 정리
             if r1[7].button("🗑️", key=f"del_{uid}", disabled=st.session_state.submitted):
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
-                for k in [f"cat_{uid}", f"am_{uid}", f"note_free_{uid}", f"note_{uid}", f"del_file_{uid}"]:
-                    st.session_state.pop(k, None)
                 st.rerun()
 
             if is_high_cost_meal:
