@@ -166,7 +166,6 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-# [핵심 변경] 스마트 재시도 로직 도입 및 재시도 횟수 상향
 def analyze_receipt(uploaded_file, retries=3): 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
@@ -189,13 +188,16 @@ def analyze_receipt(uploaded_file, retries=3):
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
+    # [핵심 변경] 프롬프트 편향성 제거 및 거래일 강제 추출 유도
     prompt = """
-    영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
-    1. "결제 날짜": YYYY-MM-DD 형식. 
-       * 주의: 한국 영수증은 'YY.MM.DD' 형식을 자주 사용해. (예: '26.03.19'는 2019년 3월 26일이 아니라 '2026년 3월 19일'이야. 무조건 맨 앞 두 자리를 연도(20YY)로 해석해!)
-    2. "사용처": 상호명 추출. (택시/배달 앱의 경우 호출 옵션이나 가맹점 이름을 적어줘)
-    3. "합계 금액": 최종 결제 금액 (숫자만).
-    * 경고: 절대로 'None', 'null' 같은 문자열을 반환하지 마. 안 보이면 "미확인" 또는 0을 써.
+    카드 이용내역(영수증) 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로 응답해.
+    1. "거래 날짜": YYYY-MM-DD 형식.
+       * [매우 중요]: 이미지 하단에 파란색 '확인' 버튼 위에 있는 '결제일'(예: 26.04.15)은 절대 추출하지 마!!!
+       * 반드시 그 위에 있는 실제 카드 사용일인 **'거래일'**(예: 26.03.04)을 추출해야 해.
+       * 연도 해석 주의: '26.03.04'는 '2026-03-04'로 변환해.
+    2. "사용처": 상호명 (예: 라르고버거, 린카 등)
+    3. "합계 금액": 최종 결제 금액 (숫자만)
+    * 예시: {"거래 날짜": "2026-03-04", "사용처": "라르고버거", "합계 금액": 13900}
     """
     
     payload = {
@@ -212,9 +214,8 @@ def analyze_receipt(uploaded_file, retries=3):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             
-            # [핵심] 서버가 너무 빠르다고 화낼 때 눈치껏 쉬어주는 지능형 대기 로직
             if response.status_code == 429:
-                time.sleep(4 * (attempt + 1)) # 4초 -> 8초 -> 12초 점진적 대기
+                time.sleep(4 * (attempt + 1)) 
                 continue
             elif response.status_code != 200:
                 time.sleep(3)
@@ -222,7 +223,9 @@ def analyze_receipt(uploaded_file, retries=3):
                 
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
             
-            date_str = str(res_data.get("결제 날짜", "")).strip().lower()
+            # [핵심 변경] AI가 '결제 날짜'가 아닌 '거래 날짜'로 대답한 것을 받아오도록 매핑
+            raw_date = res_data.get("거래 날짜", res_data.get("결제 날짜", ""))
+            date_str = str(raw_date).strip().lower()
             shop_str = str(res_data.get("사용처", "")).strip().lower()
             
             if (date_str in ["none", "null", ""] or shop_str in ["none", "null", ""]) and attempt < retries:
@@ -230,7 +233,7 @@ def analyze_receipt(uploaded_file, retries=3):
                 continue
             
             if date_str in ["none", "null", "", "미확인"]: res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
-            else: res_data["결제 날짜"] = str(res_data.get("결제 날짜"))
+            else: res_data["결제 날짜"] = str(raw_date) # 기존 시스템과의 완벽한 호환을 위해 '결제 날짜' 키에 넣어줌
             
             if shop_str in ["none", "null", "", "미확인"]: res_data["사용처"] = "미확인"
             else: res_data["사용처"] = str(res_data.get("사용처"))
@@ -448,8 +451,10 @@ def generate_excel_form(expense_items, user_name):
             logo_img = ExcelImage(img_byte_arr)
             logo_img.width = 160  
             logo_img.height = 40
+            
             ws.add_image(logo_img, f"G{current_row}")
-        except Exception as e: pass
+        except Exception as e:
+            print(f"로고 삽입 에러 발생: {e}")
 
     for row in ws['F2:I3']:
         for cell in row:
@@ -500,11 +505,13 @@ def generate_receipts_word(expense_items):
         for i in range(6):
             r_idx = i // 2 
             c_idx = i % 2  
+            
             table.rows[r_idx].height = Cm(9.0)
 
             if i < len(chunk):
                 img = chunk[i]
                 img_stream = io.BytesIO()
+
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
 
@@ -518,6 +525,7 @@ def generate_receipts_word(expense_items):
                 
                 img_w, img_h = img.size
                 ratio = img_w / img_h
+                
                 target_w_cm, target_h_cm = 9.0, 8.6
                 
                 if ratio > (target_w_cm / target_h_cm): 
@@ -653,7 +661,6 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         progress_percentage = int(((i + 1) / total_files) * 100)
         
         if i < total_files - 1:
-            # [변경] 딜레이 조절 (서버 방어막 회피용 안전 간격)
             if (i + 1) % 10 == 0:
                 for sec in range(5, 0, -1):
                     progress_bar.progress(progress_percentage, text=f"잠시 숨 고르기... {sec}초 후 재개 (현재 {i+1}건 완료)")
