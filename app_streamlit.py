@@ -189,7 +189,7 @@ def analyze_receipt(uploaded_file, retries=3):
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
-   prompt = """
+    prompt = """
     영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
     1. "결제 날짜": YYYY-MM-DD 형식. 
        * 주의: 영수증에 여러개의 날짜가 찍혀있다면 너가 판단하에 실제 그 금액이 지출되었을것 같은 날짜를 판단한 후 그 날짜를 사용해
