@@ -166,15 +166,16 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-# [핵심 변경] 스마트 재시도 로직 도입 및 재시도 횟수 상향
+# [수정] 429 발생 여부를 rate_limited 필드로 반환, seek(0)으로 커서 초기화
 def analyze_receipt(uploaded_file, retries=3): 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except KeyError:
         st.error("Secrets에 OPENAI_API_KEY가 없습니다.")
-        return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0}
+        return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0, "rate_limited": False}
 
     try:
+        uploaded_file.seek(0)  # 커서 초기화
         img_for_api = Image.open(io.BytesIO(uploaded_file.getvalue()))
         if img_for_api.mode != 'RGB':
             img_for_api = img_for_api.convert('RGB')
@@ -185,7 +186,7 @@ def analyze_receipt(uploaded_file, retries=3):
         img_for_api.save(buffered, format="JPEG", quality=85)
         base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
     except Exception as e:
-        return {"결제 날짜": "에러", "사용처": "이미지 압축 실패", "합계 금액": 0}
+        return {"결제 날짜": "에러", "사용처": "이미지 압축 실패", "합계 금액": 0, "rate_limited": False}
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
@@ -208,14 +209,16 @@ def analyze_receipt(uploaded_file, retries=3):
         ], 
         "response_format": { "type": "json_object" }
     }
-    
+
+    rate_limited = False
+
     for attempt in range(retries + 1):
         try:
             response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
             
-            # [핵심] 서버가 너무 빠르다고 화낼 때 눈치껏 쉬어주는 지능형 대기 로직
             if response.status_code == 429:
-                time.sleep(4 * (attempt + 1)) # 4초 -> 8초 -> 12초 점진적 대기
+                rate_limited = True
+                time.sleep(4 * (attempt + 1))  # 4초 -> 8초 -> 12초 점진적 대기
                 continue
             elif response.status_code != 200:
                 time.sleep(3)
@@ -237,6 +240,7 @@ def analyze_receipt(uploaded_file, retries=3):
             else: res_data["사용처"] = str(res_data.get("사용처"))
             
             res_data["is_uncertain"] = (res_data.get("사용처") == "미확인" or safe_int(res_data.get("합계 금액")) == 0)
+            res_data["rate_limited"] = rate_limited
             return res_data
             
         except Exception as e:
@@ -245,7 +249,7 @@ def analyze_receipt(uploaded_file, retries=3):
                 continue
             break
             
-    return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
+    return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True, "rate_limited": rate_limited}
 
 def save_to_s3(user_name, team_name, day_status, expense_items):
     now = datetime.now()
@@ -634,9 +638,19 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         original_file_name = img_obj.name.split('_word/media/')[0] if 'word/media/' in img_obj.name else img_obj.name
         assigned_cat = st.session_state.file_cat_map.get(original_file_name, st.session_state.selected_cat)
         
-        res = analyze_receipt(img_obj) 
-        
-        img = Image.open(io.BytesIO(img_obj.getvalue())) 
+        res = analyze_receipt(img_obj)
+
+        # [수정] 무조건 sleep 제거 → 429 실제 발생 시에만 다음 요청 전 추가 대기
+        if res.get("rate_limited") and i < total_files - 1:
+            for sec in range(10, 0, -1):
+                progress_bar.progress(
+                    int(((i + 1) / total_files) * 100),
+                    text=f"API 요청 한도 초과로 {sec}초 대기 중... ({i+1}/{total_files}건 완료)"
+                )
+                time.sleep(1)
+
+        img_obj.seek(0)  # 커서 초기화 후 이미지 로드
+        img = Image.open(io.BytesIO(img_obj.getvalue()))
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
         st.session_state.expense_items.append({
@@ -652,16 +666,7 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         })
         
         progress_percentage = int(((i + 1) / total_files) * 100)
-        
-        if i < total_files - 1:
-            # [변경] 딜레이 조절 (서버 방어막 회피용 안전 간격)
-            if (i + 1) % 10 == 0:
-                for sec in range(5, 0, -1):
-                    progress_bar.progress(progress_percentage, text=f"잠시 숨 고르기... {sec}초 후 재개 (현재 {i+1}건 완료)")
-                    time.sleep(1)
-            else:
-                progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
-                time.sleep(1) 
+        progress_bar.progress(progress_percentage, text=f"총 {total_files}건 중 {i+1}건 완료...")
                 
     st.session_state.expense_items.sort(key=lambda x: str(x.get('결제일자', '')))
     st.session_state.file_cat_map = {} 
