@@ -38,11 +38,9 @@ st.markdown("""
     .stAppDeployButton {display:none;}
     header {background-color: transparent !important;}
     
-    /* 우측 상단 툴바 완벽 숨김 */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     [data-testid="stToolbar"] {visibility: hidden !important;}
 
-    /* 카드 패딩 극한으로 축소 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 8px !important;
         box-shadow: rgba(0, 0, 0, 0.02) 0px 2px 4px !important;
@@ -53,12 +51,10 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     
-    /* 기본 컬럼 갭 축소 */
     [data-testid="column"] > div {
         gap: 0.3rem !important;
     }
     
-    /* 주요 버튼 */
     .stButton > button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
@@ -73,7 +69,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
     
-    /* 이모지 버튼 정중앙 정렬 및 여백 최소화 */
     .stButton > button[kind="secondary"], div[data-testid="stPopover"] > button {
         border-radius: 6px !important;
         font-weight: 600 !important;
@@ -95,7 +90,6 @@ st.markdown("""
     h1 { font-weight: 700 !important; letter-spacing: -1px; margin-bottom: 0px !important;}
     h3 { font-weight: 600 !important; letter-spacing: -0.5px; }
     
-    /* 입력 폼 텍스트 잘림 방지 및 높이 통일 */
     div[data-baseweb="input"], div[data-baseweb="select"] {
         border-radius: 6px !important;
         border: none !important;
@@ -110,7 +104,6 @@ st.markdown("""
         background-color: rgba(148, 163, 184, 0.12) !important;
     }
     
-    /* 일반 텍스트 입력창 여백 */
     div[data-baseweb="input"] > div > input {
         background-color: transparent !important;
         padding-left: 8px !important; 
@@ -120,7 +113,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* 드롭다운(Select) 내부 패딩을 0에 가깝게 줄여 글자 확보 */
     div[data-baseweb="select"] > div {
         background-color: transparent !important;
         padding-left: 4px !important; 
@@ -130,7 +122,6 @@ st.markdown("""
         font-size: 14px !important;
     }
     
-    /* Number Input의 + / - 버튼(스피너) 숨김 */
     [data-testid="stNumberInputStepUp"], 
     [data-testid="stNumberInputStepDown"] {
         display: none !important;
@@ -166,7 +157,6 @@ def safe_int(value):
         return abs(int(value)) if value is not None else 0
     except: return 0
 
-# [수정] 429 발생 여부를 rate_limited 필드로 반환, seek(0)으로 커서 초기화
 def analyze_receipt(uploaded_file, retries=3): 
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
@@ -175,13 +165,11 @@ def analyze_receipt(uploaded_file, retries=3):
         return {"결제 날짜": "에러", "사용처": "키 없음", "합계 금액": 0, "rate_limited": False}
 
     try:
-        uploaded_file.seek(0)  # 커서 초기화
+        uploaded_file.seek(0)
         img_for_api = Image.open(io.BytesIO(uploaded_file.getvalue()))
         if img_for_api.mode != 'RGB':
             img_for_api = img_for_api.convert('RGB')
-        
         img_for_api.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
-        
         buffered = io.BytesIO()
         img_for_api.save(buffered, format="JPEG", quality=85)
         base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
@@ -189,22 +177,23 @@ def analyze_receipt(uploaded_file, retries=3):
         return {"결제 날짜": "에러", "사용처": "이미지 압축 실패", "합계 금액": 0, "rate_limited": False}
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-    
+
+    # [수정] 가장 빠른 날짜를 AI가 직접 반환하도록 프롬프트 단순화
     prompt = """
     영수증 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로만 응답해.
-    1. "결제 날짜": YYYY-MM-DD 형식. 
-       * 주의: 영수증에 여러개의 날짜가 찍혀있다면 너가 판단하에 실제 그 금액이 거래되었을것 같은 날짜를 판단한 후 그 날짜를 사용해, 보통 날짜는 현재 시간 기준 이전 월 일거야
-       * 주의: 한국 영수증은 'YY.MM.DD' 형식을 자주 사용해. (예: '26.03.19'는 2019년 3월 26일이 아니라 '2026년 3월 19일'이야. 무조건 맨 앞 두 자리를 연도(20YY)로 해석해!)
+    1. "결제 날짜": YYYY-MM-DD 형식.
+       * 영수증에 날짜가 여러 개 있을 경우, 가장 빠른(오래된) 날짜를 선택해.
+       * 주의: 한국 영수증은 'YY.MM.DD' 형식을 자주 사용해. (예: '26.03.03'은 2026-03-03이야. 맨 앞 두 자리를 연도(20YY)로 해석해!)
     2. "사용처": 상호명 추출. (택시/배달 앱의 경우 호출 옵션이나 가맹점 이름을 적어줘)
     3. "합계 금액": 최종 결제 금액 (숫자만).
     * 경고: 절대로 'None', 'null' 같은 문자열을 반환하지 마. 안 보이면 "미확인" 또는 0을 써.
     """
-    
+
     payload = {
         "model": "gpt-4o-mini", 
         "temperature": 0.0, 
         "messages": [
-            {"role": "system", "content": "너는 영수증 데이터를 기계처럼 정확하게 추출하는 시스템이야."},
+            {"role": "system", "content": "너는 영수증 데이터를 기계처럼 정확하게 추출하는 시스템이야. 날짜가 여러 개면 반드시 가장 빠른(오래된) 날짜를 선택해."},
             {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
         ], 
         "response_format": { "type": "json_object" }
@@ -218,7 +207,9 @@ def analyze_receipt(uploaded_file, retries=3):
             
             if response.status_code == 429:
                 rate_limited = True
-                time.sleep(4 * (attempt + 1))  # 4초 -> 8초 -> 12초 점진적 대기
+                # Retry-After 헤더 값만큼만 대기, 없으면 점진적 대기
+                wait_sec = int(response.headers.get("Retry-After", 4 * (attempt + 1)))
+                time.sleep(wait_sec)
                 continue
             elif response.status_code != 200:
                 time.sleep(3)
@@ -233,13 +224,20 @@ def analyze_receipt(uploaded_file, retries=3):
                 time.sleep(1)
                 continue
             
-            if date_str in ["none", "null", "", "미확인"]: res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
-            else: res_data["결제 날짜"] = str(res_data.get("결제 날짜"))
+            if date_str in ["none", "null", "", "미확인"]:
+                res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
+            else:
+                res_data["결제 날짜"] = str(res_data.get("결제 날짜"))
+
+            if shop_str in ["none", "null", "", "미확인"]:
+                res_data["사용처"] = "미확인"
+            else:
+                res_data["사용처"] = str(res_data.get("사용처"))
             
-            if shop_str in ["none", "null", "", "미확인"]: res_data["사용처"] = "미확인"
-            else: res_data["사용처"] = str(res_data.get("사용처"))
-            
-            res_data["is_uncertain"] = (res_data.get("사용처") == "미확인" or safe_int(res_data.get("합계 금액")) == 0)
+            res_data["is_uncertain"] = (
+                res_data.get("사용처") == "미확인"
+                or safe_int(res_data.get("합계 금액")) == 0
+            )
             res_data["rate_limited"] = rate_limited
             return res_data
             
@@ -640,16 +638,14 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
         
         res = analyze_receipt(img_obj)
 
-        # [수정] 무조건 sleep 제거 → 429 실제 발생 시에만 다음 요청 전 추가 대기
-        if res.get("rate_limited") and i < total_files - 1:
-            for sec in range(10, 0, -1):
-                progress_bar.progress(
-                    int(((i + 1) / total_files) * 100),
-                    text=f"API 요청 한도 초과로 {sec}초 대기 중... ({i+1}/{total_files}건 완료)"
-                )
-                time.sleep(1)
+        # [수정] 외부 대기 제거 - 429 대기는 함수 내부에서만 처리, 외부는 알림만
+        if res.get("rate_limited"):
+            progress_bar.progress(
+                int(((i + 1) / total_files) * 100),
+                text=f"⚠️ API 한도 초과 발생, 자동 재시도됨 ({i+1}/{total_files}건 완료)"
+            )
 
-        img_obj.seek(0)  # 커서 초기화 후 이미지 로드
+        img_obj.seek(0)
         img = Image.open(io.BytesIO(img_obj.getvalue()))
         img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
         
