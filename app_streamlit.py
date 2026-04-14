@@ -291,31 +291,32 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 (레이아웃, 이중선, C0C0C0 100% 동기화)
+# [엑셀] 폼 생성 함수 (모든 디테일 완벽 적용)
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "경비지급신청서"
 
-    # 스타일 설정
-    thin = Side(style='thin')
-    double = Side(style='double')
-    border_thin = Border(left=thin, right=thin, top=thin, bottom=thin)
-    border_header = Border(left=thin, right=thin, top=double, bottom=double)
-    border_total = Border(left=thin, right=thin, top=thin, bottom=double)
-
-    align_c = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    align_l = Alignment(horizontal='left', vertical='center')
-    align_r = Alignment(horizontal='right', vertical='center')
+    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
     
-    font_bold = Font(name='맑은 고딕', bold=True)
+    # [디테일] 헤더용/합계용 이중선 (위 얇은선, 아래 이중선)
+    border_top_thin_bottom_double = Border(top=Side(style='thin'), bottom=Side(style='double'), left=Side(style='thin'), right=Side(style='thin'))
+    
+    align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    align_left = Alignment(horizontal='left', vertical='center')
+    align_right = Alignment(horizontal='right', vertical='center')
+    font_bold = Font(bold=True)
     font_title = Font(name='맑은 고딕', size=16, bold=True)
-    font_base = Font(name='맑은 고딕', size=11)
-
+    
+    # [디테일] C0C0C0 색상 
     fill_c0c0c0 = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
 
-    # 페이지 설정
+    def apply_border_to_range(range_string, border_style=border_thin):
+        for row in ws[range_string]:
+            for cell in row:
+                cell.border = border_style
+
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1   
@@ -324,173 +325,165 @@ def generate_excel_form(expense_items, user_name):
     ws.page_margins.left = 0.3
     ws.page_margins.right = 0.3
 
-    # 열 너비 설정
-    ws.column_dimensions['A'].width = 12
-    ws.column_dimensions['B'].width = 25
-    ws.column_dimensions['C'].width = 16
-    ws.column_dimensions['D'].width = 15
-    ws.column_dimensions['E'].width = 6
-    ws.column_dimensions['F'].width = 8
-    ws.column_dimensions['G'].width = 8
-    ws.column_dimensions['H'].width = 8
-    ws.column_dimensions['I'].width = 8
-
-    # 상단 행 높이 설정
-    ws.row_dimensions[1].height = 20
-    ws.row_dimensions[2].height = 30
-    ws.row_dimensions[3].height = 20
-    ws.row_dimensions[4].height = 25
-    ws.row_dimensions[6].height = 20
+    ws.column_dimensions['A'].width = 12  
+    ws.column_dimensions['B'].width = 22  
+    ws.column_dimensions['C'].width = 16  
+    ws.column_dimensions['D'].width = 13  
+    ws.column_dimensions['E'].width = 4   
+    for col in ['F', 'G', 'H', 'I']:
+        ws.column_dimensions[col].width = 8 
 
     now = datetime.now()
     prev_month = 12 if now.month == 1 else now.month - 1
     target_month = f"{prev_month:02d}"
 
-    # 1. 타이틀 (A2)
-    ws.merge_cells('A2:D2')
-    ws['A2'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
-    ws['A2'].font = font_title
-    ws['A2'].alignment = align_l
-
-    # 2. 결재란 (우측 상단 E1:I3)
-    ws.merge_cells('E1:E2')
-    ws['E1'] = "결\n재"
-    ws['E1'].alignment = align_c
-    ws['E1'].font = font_bold
-    ws['E3'] = "날짜"
-    ws['E3'].alignment = align_c
-    ws['E3'].font = font_base
+    ws.merge_cells('A1:D3')
+    ws['A1'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
+    ws['A1'].font = font_title
+    ws['A1'].alignment = align_left
 
     approvers = ["담당", "팀장", "본부장", "관리부"]
-    for i, app in enumerate(approvers):
-        col = chr(ord('F') + i)
-        ws[f'{col}1'] = app
-        ws[f'{col}1'].alignment = align_c
-        ws[f'{col}1'].font = font_base
-        ws[f'{col}3'] = "  /  "
-        ws[f'{col}3'].alignment = align_c
+    ws.merge_cells('E1:E3')
+    ws['E1'] = "결\n\n재"
+    ws['E1'].alignment = align_center
+    apply_border_to_range('E1:E3') 
+    
+    ws.row_dimensions[2].height = 45 
 
-    for r in range(1, 4):
-        for c in range(5, 10):
-            ws.cell(row=r, column=c).border = border_thin
+    for idx, approver in enumerate(approvers):
+        col_letter = chr(ord('F') + idx) 
+        ws[f'{col_letter}1'] = approver
+        ws[f'{col_letter}1'].alignment = align_center
+        ws[f'{col_letter}2'] = "" 
+        ws[f'{col_letter}3'] = "   /   " 
+        ws[f'{col_letter}3'].alignment = align_center
+        apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
-    # 3. 사용자 정보 (A4)
-    ws.merge_cells('A4:D4')
-    ws['A4'] = f"사용자 : {user_name}"
-    ws['A4'].font = Font(name='맑은 고딕', size=12, bold=True)
-    ws['A4'].alignment = align_l
+    ws.merge_cells('A5:I5')
+    ws['A5'] = f"사용자 : {user_name}"
+    ws['A5'].font = font_bold
+    ws['A5'].alignment = align_left
 
-    # 4. 청구액 박스 (C6 ~ I6)
     total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
-    ws['C6'] = "청 구 액"
-    ws['C6'].alignment = align_c
-    ws['C6'].font = font_bold
-    ws['C6'].border = border_thin
+    
+    ws.merge_cells('C7:D7')
+    ws['C7'] = "청 구 액"
+    ws['C7'].alignment = align_center
+    ws['C7'].font = font_bold
+    apply_border_to_range('C7:D7') 
+    
+    ws.merge_cells('E7:I7') 
+    ws['E7'] = f"{total_amt:,} 원정"
+    ws['E7'].alignment = align_right
+    ws['E7'].font = font_bold
+    apply_border_to_range('E7:I7') 
 
-    ws.merge_cells('D6:I6')
-    ws['D6'] = f"{total_amt:,} 원정"
-    ws['D6'].alignment = align_r
-    ws['D6'].font = font_bold
-    for c in range(4, 10):
-        ws.cell(row=6, column=c).border = border_thin
-
-    # 5. 메인 테이블 헤더 (8행)
-    ws.row_dimensions[8].height = 25
-    headers = [("A8", "일 자"), ("B8", "사 용 처"), ("C8", "사 용 내 역"), ("D8", "금 액")]
-    for cell_pos, text in headers:
-        ws[cell_pos] = text
-        ws[cell_pos].alignment = align_c
-        ws[cell_pos].font = font_bold
-        ws[cell_pos].fill = fill_c0c0c0
-        ws[cell_pos].border = border_header
-
-    ws.merge_cells('E8:I8')
-    ws['E8'] = "비 고 (slack 퇴근시간 등)"
-    ws['E8'].alignment = align_c
-    ws['E8'].font = font_bold
-    ws['E8'].fill = fill_c0c0c0
+    # [디테일] 헤더 (색상 C0C0C0, 위 얇은선 / 아래 이중선)
+    headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=9, column=col_num, value=header)
+        cell.font = font_bold
+        cell.alignment = align_center
+        cell.fill = fill_c0c0c0
+        cell.border = border_top_thin_bottom_double
+        
+    ws.merge_cells('E9:I9')
+    ws['E9'] = "비 고 (slack 퇴근시간 등)"
+    ws['E9'].font = font_bold
+    ws['E9'].alignment = align_center
+    ws['E9'].fill = fill_c0c0c0
+    
     for c in range(5, 10):
-        ws.cell(row=8, column=c).border = border_header
+        ws.cell(row=9, column=c).border = border_top_thin_bottom_double
 
-    # 6. 메인 테이블 데이터 채우기 (9행~)
-    current_row = 9
+    current_row = 10
     for item in expense_items:
-        ws.row_dimensions[current_row].height = 22
-        ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_c
-        ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_l
-        ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_c
-
+        # [디테일] 날짜 포맷팅 (m/d 양식)
+        raw_date = item.get('결제일자', '')
+        formatted_date = raw_date
+        if raw_date:
+            try:
+                dt_obj = datetime.strptime(raw_date, "%Y-%m-%d")
+                formatted_date = f"{dt_obj.month}/{dt_obj.day}"
+            except Exception:
+                pass
+                
+        ws.cell(row=current_row, column=1, value=formatted_date).alignment = align_center
+        ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
+        ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
+        
         amt_cell = ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0))
-        amt_cell.alignment = align_r
+        amt_cell.alignment = align_right
         amt_cell.number_format = '#,##0'
-
+        
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
-        ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_l
-
-        for c in range(1, 10):
-            ws.cell(row=current_row, column=c).border = border_thin
-
+        ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
+        apply_border_to_range(f'A{current_row}:I{current_row}') 
         current_row += 1
-
-        # 배달비 행 추가
+        
         if item.get('배달비_이미지_display'):
-            ws.row_dimensions[current_row].height = 22
-            ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_c
-            ws.cell(row=current_row, column=2, value=f"└ {item.get('사용처', '')} 배달비").alignment = align_l
-            ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_c
-
+            ws.cell(row=current_row, column=1, value=formatted_date).alignment = align_center
+            delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
+            ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
+            ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
+            
             del_amt_cell = ws.cell(row=current_row, column=4, value=0)
-            del_amt_cell.alignment = align_r
+            del_amt_cell.alignment = align_right 
             del_amt_cell.number_format = '#,##0'
-
+            
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
-            ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_l
-
-            for c in range(1, 10):
-                ws.cell(row=current_row, column=c).border = border_thin
+            ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_left
+            apply_border_to_range(f'A{current_row}:I{current_row}') 
             current_row += 1
 
-    # 빈 행을 27행까지 채워 구조 유지
+    # [디테일] 데이터 행을 정확히 27번까지 채워 A4 비율(총 32행 규격) 확정
     while current_row <= 27:
-        ws.row_dimensions[current_row].height = 22
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
-        for c in range(1, 10):
-            ws.cell(row=current_row, column=c).border = border_thin
+        apply_border_to_range(f'A{current_row}:I{current_row}')
         current_row += 1
 
-    # 7. 합계 행 (28행)
-    ws.row_dimensions[current_row].height = 25
-    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=3)
-    ws.cell(row=current_row, column=1, value="합        계").alignment = align_c
+    # 7. [디테일] 합계 행 (위 얇은선, 아래 이중선) - 28행
+    ws.merge_cells(f'A{current_row}:C{current_row}')
+    ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
     ws.cell(row=current_row, column=1).font = font_bold
-
+    
     tot_cell = ws.cell(row=current_row, column=4, value=total_amt)
-    tot_cell.alignment = align_r
+    tot_cell.alignment = align_right
     tot_cell.font = font_bold
     tot_cell.number_format = '#,##0'
-
+    
     ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
-    ws.cell(row=current_row, column=5, value="-").alignment = align_c
-
+    ws.cell(row=current_row, column=5, value="-").alignment = align_center
+    
     for c in range(1, 10):
-        ws.cell(row=current_row, column=c).border = border_total
+        ws.cell(row=current_row, column=c).border = border_top_thin_bottom_double
 
-    # 8. 하단 텍스트 및 로고
-    current_row += 1
-    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
-    ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_c
+    # 8. [디테일] 합계 밑 빈 줄 여백 추가 - 29행
+    current_row += 1 
+    ws.merge_cells(f'A{current_row}:I{current_row}')
+    ws.row_dimensions[current_row].height = 20
 
-    current_row += 1
-    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
+    # 9. 하단 문구 - 30행
+    current_row += 1 
+    ws.merge_cells(f'A{current_row}:I{current_row}')
+    ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
+    ws.row_dimensions[current_row].height = 15
+    
+    # 10. 날짜 기입 - 31행
+    current_row += 1 
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
-    ws.cell(row=current_row, column=1, value=today_str).alignment = align_c
-
-    current_row += 2
-    ws.merge_cells(start_row=current_row, start_column=7, end_row=current_row, end_column=9)
+    ws.merge_cells(f'A{current_row}:I{current_row}')
+    ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
+    ws.row_dimensions[current_row].height = 15
+    
+    # 11. [디테일] 우측 하단 로고 전용석 - 32행
+    current_row += 1 
     ws.row_dimensions[current_row].height = 40
+    ws.merge_cells(f'G{current_row}:I{current_row}') 
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     logo_path = os.path.join(current_dir, "logo.png")
+
     if os.path.exists(logo_path):
         try:
             with Image.open(logo_path) as pil_img:
@@ -499,19 +492,32 @@ def generate_excel_form(expense_items, user_name):
                 img_byte_arr = io.BytesIO()
                 pil_img.save(img_byte_arr, format='PNG')
                 img_byte_arr.seek(0)
+            
             logo_img = ExcelImage(img_byte_arr)
-            logo_img.width = 160
+            logo_img.width = 160  
             logo_img.height = 40
+            
             ws.add_image(logo_img, f"G{current_row}")
         except Exception as e:
             pass
 
-    # 눈금선 숨김 및 시트 보호 설정 (서명란 제외)
+    # [디테일] 문서 전체 외곽선(테두리) 굵은 검정색으로 칠하기
+    thick_border = Side(style='medium', color='000000')
+    for r in range(1, current_row + 1):
+        for c in range(1, 10):
+            cell = ws.cell(row=r, column=c)
+            b = cell.border
+            if not b: b = Border()
+            
+            t = thick_border if r == 1 else b.top
+            bot = thick_border if r == current_row else b.bottom
+            l = thick_border if c == 1 else b.left
+            ri = thick_border if c == 9 else b.right
+            
+            cell.border = Border(top=t, bottom=bot, left=l, right=ri, diagonal=b.diagonal, diagonalDown=b.diagonalDown)
+
+    # 엑셀 눈금선 숨기기 (공식 문서 백지 배경 구현)
     ws.sheet_view.showGridLines = False
-    ws.protection.sheet = True
-    for row in ws['F2:I2']: 
-        for cell in row:
-            cell.protection = Protection(locked=False)
 
     output = io.BytesIO()
     wb.save(output)
