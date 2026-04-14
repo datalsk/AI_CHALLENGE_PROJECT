@@ -188,7 +188,6 @@ def analyze_receipt(uploaded_file, retries=3):
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     
-    # [핵심 변경] 프롬프트 편향성 제거 및 거래일 강제 추출 유도
     prompt = """
     카드 이용내역(영수증) 이미지에서 다음 3가지 정보를 반드시 추출하여 JSON 형식으로 응답해.
     1. "거래 날짜": YYYY-MM-DD 형식.
@@ -223,7 +222,6 @@ def analyze_receipt(uploaded_file, retries=3):
                 
             res_data = json.loads(response.json()['choices'][0]['message']['content'])
             
-            # [핵심 변경] AI가 '결제 날짜'가 아닌 '거래 날짜'로 대답한 것을 받아오도록 매핑
             raw_date = res_data.get("거래 날짜", res_data.get("결제 날짜", ""))
             date_str = str(raw_date).strip().lower()
             shop_str = str(res_data.get("사용처", "")).strip().lower()
@@ -233,7 +231,7 @@ def analyze_receipt(uploaded_file, retries=3):
                 continue
             
             if date_str in ["none", "null", "", "미확인"]: res_data["결제 날짜"] = datetime.now().strftime("%Y-%m-%d")
-            else: res_data["결제 날짜"] = str(raw_date) # 기존 시스템과의 완벽한 호환을 위해 '결제 날짜' 키에 넣어줌
+            else: res_data["결제 날짜"] = str(raw_date)
             
             if shop_str in ["none", "null", "", "미확인"]: res_data["사용처"] = "미확인"
             else: res_data["사용처"] = str(res_data.get("사용처"))
@@ -293,24 +291,31 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수
+# [엑셀] 폼 생성 함수 (C0C0C0 색상, 이중선 디테일 완벽 적용)
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "경비지급신청서"
 
+    # 기본 테두리 및 정렬
     border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    # [수정] 이중선(Double) 테두리 생성
+    border_double = Border(top=Side(style='double'), bottom=Side(style='double'), left=Side(style='thin'), right=Side(style='thin'))
+    
     align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
     align_left = Alignment(horizontal='left', vertical='center')
     align_right = Alignment(horizontal='right', vertical='center')
     font_bold = Font(bold=True)
     font_title = Font(name='맑은 고딕', size=16, bold=True)
+    
+    # [수정] C0C0C0 색상 
+    fill_c0c0c0 = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
 
-    def apply_border_to_range(range_string):
+    def apply_border_to_range(range_string, border_style=border_thin):
         for row in ws[range_string]:
             for cell in row:
-                cell.border = border_thin
+                cell.border = border_style
 
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToPage = True
@@ -332,11 +337,13 @@ def generate_excel_form(expense_items, user_name):
     prev_month = 12 if now.month == 1 else now.month - 1
     target_month = f"{prev_month:02d}"
 
+    # 1. 타이틀
     ws.merge_cells('A1:D3')
     ws['A1'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
+    # 2. 결재란
     approvers = ["담당", "팀장", "본부장", "관리부"]
     ws.merge_cells('E1:E3')
     ws['E1'] = "결\n\n재"
@@ -354,6 +361,7 @@ def generate_excel_form(expense_items, user_name):
         ws[f'{col_letter}3'].alignment = align_center
         apply_border_to_range(f'{col_letter}1:{col_letter}3') 
 
+    # 3. 사용자
     ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name}"
     ws['A5'].font = font_bold
@@ -361,6 +369,7 @@ def generate_excel_form(expense_items, user_name):
 
     total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
     
+    # 4. 청구액 (얇은 테두리)
     ws.merge_cells('C7:D7')
     ws['C7'] = "청 구 액"
     ws['C7'].alignment = align_center
@@ -373,27 +382,35 @@ def generate_excel_form(expense_items, user_name):
     ws['E7'].font = font_bold
     apply_border_to_range('E7:I7') 
 
+    # 5. [디테일 수정] 헤더 (색상 C0C0C0, 위아래 이중선)
     headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=9, column=col_num, value=header)
         cell.font = font_bold
         cell.alignment = align_center
-        cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-        cell.border = border_thin
+        cell.fill = fill_c0c0c0
         
     ws.merge_cells('E9:I9')
     ws['E9'] = "비 고 (slack 퇴근시간 등)"
     ws['E9'].font = font_bold
     ws['E9'].alignment = align_center
-    ws['E9'].fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-    apply_border_to_range('E9:I9')
+    ws['E9'].fill = fill_c0c0c0
+    
+    # 헤더 전체 행에 이중선 테두리 적용
+    for c in range(1, 10):
+        ws.cell(row=9, column=c).border = border_double
 
+    # 6. 데이터 채우기
     current_row = 10
     for item in expense_items:
         ws.cell(row=current_row, column=1, value=item.get('결제일자', '')).alignment = align_center
         ws.cell(row=current_row, column=2, value=item.get('사용처', '')).alignment = align_left
         ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
-        ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0)).alignment = align_right
+        
+        amt_cell = ws.cell(row=current_row, column=4, value=item.get('_effective_cost', 0))
+        amt_cell.alignment = align_right
+        amt_cell.number_format = '#,##0'
+        
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         ws.cell(row=current_row, column=5, value=item.get('비고', '')).alignment = align_left
         apply_border_to_range(f'A{current_row}:I{current_row}') 
@@ -404,35 +421,52 @@ def generate_excel_form(expense_items, user_name):
             delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
             ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
             ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
-            ws.cell(row=current_row, column=4, value=0).alignment = align_right 
+            
+            del_amt_cell = ws.cell(row=current_row, column=4, value=0)
+            del_amt_cell.alignment = align_right 
+            del_amt_cell.number_format = '#,##0'
+            
             ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
             ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_left
             apply_border_to_range(f'A{current_row}:I{current_row}') 
             current_row += 1
 
-    while current_row <= 22:
+    # [디테일 수정] 여유로운 빈칸 27행까지 렌더링
+    while current_row <= 27:
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         apply_border_to_range(f'A{current_row}:I{current_row}')
         current_row += 1
 
+    # 7. [디테일 수정] 합계 (위아래 이중선)
     ws.merge_cells(f'A{current_row}:C{current_row}')
     ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
     ws.cell(row=current_row, column=1).font = font_bold
-    ws.cell(row=current_row, column=4, value=total_amt).alignment = align_right
-    ws.cell(row=current_row, column=4).font = font_bold
+    
+    tot_cell = ws.cell(row=current_row, column=4, value=total_amt)
+    tot_cell.alignment = align_right
+    tot_cell.font = font_bold
+    tot_cell.number_format = '#,##0'
     
     ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
     ws.cell(row=current_row, column=5, value="-").alignment = align_center
-    apply_border_to_range(f'A{current_row}:I{current_row}')
+    
+    # 합계 전체 행에 이중선 테두리 적용
+    for c in range(1, 10):
+        ws.cell(row=current_row, column=c).border = border_double
 
-    current_row += 2
+    # 8. 하단 문구 및 로고 삽입
+    current_row += 1
+    apply_border_to_range(f'A{current_row}:I{current_row}', border_style=Border()) # 투명 테두리
+    
+    current_row += 1
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
     
-    current_row += 2
+    current_row += 1
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
-    ws.merge_cells(f'A{current_row}:I{current_row}')
+    ws.merge_cells(f'A{current_row}:F{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
+    ws.merge_cells(f'G{current_row}:I{current_row}') # 로고용 병합 분리
 
     ws.row_dimensions[current_row].height = 40 
 
@@ -454,13 +488,10 @@ def generate_excel_form(expense_items, user_name):
             
             ws.add_image(logo_img, f"G{current_row}")
         except Exception as e:
-            print(f"로고 삽입 에러 발생: {e}")
+            pass
 
-    for row in ws['F2:I3']:
-        for cell in row:
-            cell.protection = Protection(locked=False)
-            
-    ws.protection.sheet = True
+    # [신규] 엑셀 기본 눈금선 숨김 (이미지와 동일한 깔끔한 백지 상태)
+    ws.sheet_view.showGridLines = False
 
     output = io.BytesIO()
     wb.save(output)
