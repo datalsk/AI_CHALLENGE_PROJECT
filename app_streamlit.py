@@ -291,7 +291,7 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 (모든 디테일 완벽 적용)
+# [엑셀] 폼 생성 함수
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -299,8 +299,6 @@ def generate_excel_form(expense_items, user_name):
     ws.title = "경비지급신청서"
 
     border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    
-    # [디테일] 헤더용/합계용 이중선 (위 얇은선, 아래 이중선)
     border_top_thin_bottom_double = Border(top=Side(style='thin'), bottom=Side(style='double'), left=Side(style='thin'), right=Side(style='thin'))
     
     align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -309,7 +307,6 @@ def generate_excel_form(expense_items, user_name):
     font_bold = Font(bold=True)
     font_title = Font(name='맑은 고딕', size=16, bold=True)
     
-    # [디테일] C0C0C0 색상 
     fill_c0c0c0 = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
 
     def apply_border_to_range(range_string, border_style=border_thin):
@@ -337,28 +334,40 @@ def generate_excel_form(expense_items, user_name):
     prev_month = 12 if now.month == 1 else now.month - 1
     target_month = f"{prev_month:02d}"
 
+    # 1. 타이틀
     ws.merge_cells('A1:D3')
     ws['A1'] = f"(주) 밀버스 {target_month}월 경비 지급신청"
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
+    # 2. [수정] 결재란 (날짜 칸 복구 및 레이아웃 재조정)
     approvers = ["담당", "팀장", "본부장", "관리부"]
-    ws.merge_cells('E1:E3')
+    ws.merge_cells('E1:E2')
     ws['E1'] = "결\n\n재"
     ws['E1'].alignment = align_center
-    apply_border_to_range('E1:E3') 
+    ws['E1'].border = border_thin
+    
+    ws['E3'] = "날짜"
+    ws['E3'].alignment = align_center
+    ws['E3'].border = border_thin
     
     ws.row_dimensions[2].height = 45 
 
     for idx, approver in enumerate(approvers):
         col_letter = chr(ord('F') + idx) 
+        
         ws[f'{col_letter}1'] = approver
         ws[f'{col_letter}1'].alignment = align_center
+        ws[f'{col_letter}1'].border = border_thin
+        
         ws[f'{col_letter}2'] = "" 
+        ws[f'{col_letter}2'].border = border_thin
+        
         ws[f'{col_letter}3'] = "   /   " 
         ws[f'{col_letter}3'].alignment = align_center
-        apply_border_to_range(f'{col_letter}1:{col_letter}3') 
+        ws[f'{col_letter}3'].border = border_thin
 
+    # 3. 사용자
     ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name}"
     ws['A5'].font = font_bold
@@ -366,6 +375,7 @@ def generate_excel_form(expense_items, user_name):
 
     total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
     
+    # 4. 청구액 
     ws.merge_cells('C7:D7')
     ws['C7'] = "청 구 액"
     ws['C7'].alignment = align_center
@@ -378,7 +388,7 @@ def generate_excel_form(expense_items, user_name):
     ws['E7'].font = font_bold
     apply_border_to_range('E7:I7') 
 
-    # [디테일] 헤더 (색상 C0C0C0, 위 얇은선 / 아래 이중선)
+    # 5. 헤더 (색상 C0C0C0, 위 얇은선 / 아래 이중선)
     headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=9, column=col_num, value=header)
@@ -396,9 +406,9 @@ def generate_excel_form(expense_items, user_name):
     for c in range(5, 10):
         ws.cell(row=9, column=c).border = border_top_thin_bottom_double
 
+    # 6. 데이터 채우기
     current_row = 10
     for item in expense_items:
-        # [디테일] 날짜 포맷팅 (m/d 양식)
         raw_date = item.get('결제일자', '')
         formatted_date = raw_date
         if raw_date:
@@ -436,13 +446,12 @@ def generate_excel_form(expense_items, user_name):
             apply_border_to_range(f'A{current_row}:I{current_row}') 
             current_row += 1
 
-    # [디테일] 데이터 행을 정확히 27번까지 채워 A4 비율(총 32행 규격) 확정
     while current_row <= 27:
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         apply_border_to_range(f'A{current_row}:I{current_row}')
         current_row += 1
 
-    # 7. [디테일] 합계 행 (위 얇은선, 아래 이중선) - 28행
+    # 7. 합계 행 (위 얇은선, 아래 이중선) 
     ws.merge_cells(f'A{current_row}:C{current_row}')
     ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
     ws.cell(row=current_row, column=1).font = font_bold
@@ -458,25 +467,25 @@ def generate_excel_form(expense_items, user_name):
     for c in range(1, 10):
         ws.cell(row=current_row, column=c).border = border_top_thin_bottom_double
 
-    # 8. [디테일] 합계 밑 빈 줄 여백 추가 - 29행
+    # 8. 합계 밑 빈 줄 여백 추가
     current_row += 1 
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.row_dimensions[current_row].height = 20
 
-    # 9. 하단 문구 - 30행
+    # 9. 하단 문구
     current_row += 1 
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
     ws.row_dimensions[current_row].height = 15
     
-    # 10. 날짜 기입 - 31행
+    # 10. 날짜 기입 
     current_row += 1 
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
     ws.row_dimensions[current_row].height = 15
     
-    # 11. [디테일] 우측 하단 로고 전용석 - 32행
+    # 11. 우측 하단 로고 전용석
     current_row += 1 
     ws.row_dimensions[current_row].height = 40
     ws.merge_cells(f'G{current_row}:I{current_row}') 
@@ -501,7 +510,7 @@ def generate_excel_form(expense_items, user_name):
         except Exception as e:
             pass
 
-    # [디테일] 문서 전체 외곽선(테두리) 굵은 검정색으로 칠하기
+    # 전체 외곽선(테두리) 굵은 검정색으로 칠하기
     thick_border = Side(style='medium', color='000000')
     for r in range(1, current_row + 1):
         for c in range(1, 10):
@@ -516,7 +525,6 @@ def generate_excel_form(expense_items, user_name):
             
             cell.border = Border(top=t, bottom=bot, left=l, right=ri, diagonal=b.diagonal, diagonalDown=b.diagonalDown)
 
-    # 엑셀 눈금선 숨기기 (공식 문서 백지 배경 구현)
     ws.sheet_view.showGridLines = False
 
     output = io.BytesIO()
