@@ -326,7 +326,8 @@ def generate_excel_form(expense_items, user_name):
     ws.column_dimensions['B'].width = 22  
     ws.column_dimensions['C'].width = 16  
     ws.column_dimensions['D'].width = 13  
-    ws.column_dimensions['E'].width = 4   
+    # [핵심 수정] 날짜 텍스트가 잘리지 않도록 E열 너비 여유 있게 확장
+    ws.column_dimensions['E'].width = 7.0   
     for col in ['F', 'G', 'H', 'I']:
         ws.column_dimensions[col].width = 8 
 
@@ -339,34 +340,33 @@ def generate_excel_form(expense_items, user_name):
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
-    # 결재란 세팅 (날짜칸 높이 축소 적용)
+    # [핵심 수정] 결재란 세팅 (선 누락 방지를 위해 병합 전 테두리 전체 적용)
     approvers = ["담당", "팀장", "본부장", "관리부"]
-    ws.merge_cells('E1:E2')
-    ws['E1'] = "결\n\n재"
-    ws['E1'].alignment = align_center
-    ws['E1'].border = border_thin
     
-    ws['E3'] = "날짜"
+    # E1:I3 모든 칸에 얇은 선 먼저 깔기 (선 증발 현상 방지)
+    apply_border_to_range('E1:I3', border_thin)
+
+    ws.merge_cells('E1:E2')
+    ws['E1'] = "결\n재" 
+    ws['E1'].alignment = align_center
+    
+    ws['E3'] = "날 짜"
     ws['E3'].alignment = align_center
-    ws['E3'].border = border_thin
     
     ws.row_dimensions[1].height = 20
     ws.row_dimensions[2].height = 40
-    ws.row_dimensions[3].height = 16 # 날짜 칸 높이 타이트하게 조절
+    ws.row_dimensions[3].height = 16 # 날짜 칸 높이 타이트하게
 
     for idx, approver in enumerate(approvers):
         col_letter = chr(ord('F') + idx) 
         
         ws[f'{col_letter}1'] = approver
         ws[f'{col_letter}1'].alignment = align_center
-        ws[f'{col_letter}1'].border = border_thin
         
         ws[f'{col_letter}2'] = "" 
-        ws[f'{col_letter}2'].border = border_thin
         
         ws[f'{col_letter}3'] = "   /   " 
         ws[f'{col_letter}3'].alignment = align_center
-        ws[f'{col_letter}3'].border = border_thin
 
     # 사용자
     ws.merge_cells('A5:I5')
