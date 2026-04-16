@@ -793,13 +793,13 @@ if not raw_df.empty:
                 main_url = get_presigned_url(row.get('증빙URL'))
                 if main_url:
                     with btn_cols[0]:
-                        with st.popover("🧾 영수증"):
+                        with st.popover("🧾"):
                             st.image(main_url, width=400)
                             
                 del_url = get_presigned_url(row.get('배달비_증빙URL'))
                 if del_url:
                     with btn_cols[1]:
-                        with st.popover("🧾 배달비"):
+                        with st.popover("🧾"):
                             st.image(del_url, width=400)
 
     # --- 3. 관리자 전용 개인 문서 일괄 다운로드 ---
