@@ -17,7 +17,7 @@ from docx.shared import Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==========================================
-# 0. UI 설정 및 컴팩트 SaaS 디자인 CSS 적용 (사용자 앱과 100% 동일)
+# 0. UI 설정 및 컴팩트 SaaS 디자인 CSS 적용
 # ==========================================
 st.set_page_config(page_title="관리자 대시보드", layout="wide")
 
@@ -147,7 +147,7 @@ TEAM_MEMBERS = {
         "송은주", "이재상", "이한새", "강윤희", "김정란", "이현지", 
         "김광수", "정창호", "박형규", "김정민", "김지현", "최보영", 
         "이은진", "손민우", "오상윤", "구대연", "이승규", "임성묵", 
-        "최우혁", "박주연", "안소희", "구재현", "심세은", "유수종"
+        "최무혁", "박주연", "안소희", "구재현", "심세은", "유수종"
     ]
 }
 
@@ -197,7 +197,7 @@ def get_presigned_url(full_url):
     return None
 
 # ==========================================
-# 문서 생성 모듈 1: 개인별 엑셀 폼 (사용자 앱 최신 100% 동기화본)
+# 문서 생성 모듈 1: 개인별 엑셀 폼 
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -429,7 +429,7 @@ def generate_excel_form(expense_items, user_name):
     return output
 
 # ==========================================
-# 문서 생성 모듈 2: 개인별 워드 영수증 모음 (사용자 앱 최신 100% 동기화본)
+# 문서 생성 모듈 2: 개인별 워드 영수증 모음 
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
@@ -793,13 +793,13 @@ if not raw_df.empty:
                 main_url = get_presigned_url(row.get('증빙URL'))
                 if main_url:
                     with btn_cols[0]:
-                        with st.popover("영수증"):
+                        with st.popover("🧾 영수증"):
                             st.image(main_url, width=400)
                             
                 del_url = get_presigned_url(row.get('배달비_증빙URL'))
                 if del_url:
                     with btn_cols[1]:
-                        with st.popover("배달"):
+                        with st.popover("🧾 배달비"):
                             st.image(del_url, width=400)
 
     # --- 3. 관리자 전용 개인 문서 일괄 다운로드 ---
