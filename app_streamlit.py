@@ -247,6 +247,7 @@ def analyze_receipt(uploaded_file, retries=3):
             
     return {"결제 날짜": datetime.now().strftime("%Y-%m-%d"), "사용처": "분석 실패", "합계 금액": 0, "is_uncertain": True}
 
+# [핵심 수정] 배달비 증빙 업로드 관련 로직 완전 삭제
 def save_to_s3(user_name, team_name, day_status, expense_items):
     now = datetime.now()
     date_path = now.strftime('%Y/%m')
@@ -263,7 +264,6 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             continue
 
         img_url = "N/A"
-        del_img_url = "N/A"
         
         if item.get('image_display'):
             img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{item.get('id', idx)}.png"
@@ -272,26 +272,18 @@ def save_to_s3(user_name, team_name, day_status, expense_items):
             s3_client.put_object(Bucket=s3_bucket, Key=img_key, Body=img_byte_arr.getvalue(), ContentType='image/png')
             img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{img_key}"
             
-        if item.get('배달비_이미지_display'):
-            del_img_key = f"images/{date_path}/{team_name}/{user_name}_{timestamp}_{item.get('id', idx)}_delivery.png"
-            del_img_byte_arr = io.BytesIO()
-            item['배달비_이미지_display'].save(del_img_byte_arr, format='PNG')
-            s3_client.put_object(Bucket=s3_bucket, Key=del_img_key, Body=del_img_byte_arr.getvalue(), ContentType='image/png')
-            del_img_url = f"https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{del_img_key}"
-            
         summary_list.append({
             "이름": user_name, "팀명": team_name, "항목": item['종류'], 
             "금액": final_amt, "결제일자": item['결제일자'], 
             "사용처": item['사용처'], "수행일자": day_status, 
-            "비고": item.get('비고', ""), "증빙URL": img_url,
-            "배달비_증빙URL": del_img_url if del_img_url != "N/A" else ""
+            "비고": item.get('비고', ""), "증빙URL": img_url
         })
         
     s3_client.put_object(Bucket=s3_bucket, Key=f"data/{date_path}/{team_name}/{user_name}_{timestamp}.json", Body=json.dumps(summary_list, ensure_ascii=False).encode('utf-8'))
     return True
 
 # ==========================================
-# [엑셀] 폼 생성 함수 (모든 디테일 완벽 적용)
+# [엑셀] 폼 생성 함수
 # ==========================================
 def generate_excel_form(expense_items, user_name):
     wb = openpyxl.Workbook()
@@ -326,7 +318,6 @@ def generate_excel_form(expense_items, user_name):
     ws.column_dimensions['B'].width = 22  
     ws.column_dimensions['C'].width = 16  
     ws.column_dimensions['D'].width = 13  
-    # [핵심 수정] 날짜 텍스트가 잘리지 않도록 E열 너비 여유 있게 확장
     ws.column_dimensions['E'].width = 7.0   
     for col in ['F', 'G', 'H', 'I']:
         ws.column_dimensions[col].width = 8 
@@ -340,10 +331,8 @@ def generate_excel_form(expense_items, user_name):
     ws['A1'].font = font_title
     ws['A1'].alignment = align_left
 
-    # [핵심 수정] 결재란 세팅 (선 누락 방지를 위해 병합 전 테두리 전체 적용)
     approvers = ["담당", "팀장", "본부장", "관리부"]
     
-    # E1:I3 모든 칸에 얇은 선 먼저 깔기 (선 증발 현상 방지)
     apply_border_to_range('E1:I3', border_thin)
 
     ws.merge_cells('E1:E2')
@@ -355,20 +344,16 @@ def generate_excel_form(expense_items, user_name):
     
     ws.row_dimensions[1].height = 20
     ws.row_dimensions[2].height = 40
-    ws.row_dimensions[3].height = 16 # 날짜 칸 높이 타이트하게
+    ws.row_dimensions[3].height = 16 
 
     for idx, approver in enumerate(approvers):
         col_letter = chr(ord('F') + idx) 
-        
         ws[f'{col_letter}1'] = approver
         ws[f'{col_letter}1'].alignment = align_center
-        
         ws[f'{col_letter}2'] = "" 
-        
         ws[f'{col_letter}3'] = "   /   " 
         ws[f'{col_letter}3'].alignment = align_center
 
-    # 사용자
     ws.merge_cells('A5:I5')
     ws['A5'] = f"사용자 : {user_name}"
     ws['A5'].font = font_bold
@@ -376,7 +361,6 @@ def generate_excel_form(expense_items, user_name):
 
     total_amt = sum(item.get('_effective_cost', 0) for item in expense_items)
     
-    # 청구액 
     ws.merge_cells('C7:D7')
     ws['C7'] = "청 구 액"
     ws['C7'].alignment = align_center
@@ -389,7 +373,6 @@ def generate_excel_form(expense_items, user_name):
     ws['E7'].font = font_bold
     apply_border_to_range('E7:I7') 
 
-    # 헤더 (색상 C0C0C0, 위 얇은선 / 아래 이중선)
     headers = ["일 자", "사 용 처", "사 용 내 역", "금 액"]
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=9, column=col_num, value=header)
@@ -407,7 +390,7 @@ def generate_excel_form(expense_items, user_name):
     for c in range(5, 10):
         ws.cell(row=9, column=c).border = border_top_thin_bottom_double
 
-    # 데이터 채우기 (높이 21 통일 적용)
+    # [핵심 수정] 엑셀에서도 배달비 분리 기입 로직 삭제
     current_row = 10
     for item in expense_items:
         raw_date = item.get('결제일자', '')
@@ -433,32 +416,13 @@ def generate_excel_form(expense_items, user_name):
         
         ws.row_dimensions[current_row].height = 21
         current_row += 1
-        
-        if item.get('배달비_이미지_display'):
-            ws.cell(row=current_row, column=1, value=formatted_date).alignment = align_center
-            delivery_shop_name = f"└ {item.get('사용처', '')} 배달비" 
-            ws.cell(row=current_row, column=2, value=delivery_shop_name).alignment = align_left
-            ws.cell(row=current_row, column=3, value=item.get('종류', '')).alignment = align_center
-            
-            del_amt_cell = ws.cell(row=current_row, column=4, value=0)
-            del_amt_cell.alignment = align_right 
-            del_amt_cell.number_format = '#,##0'
-            
-            ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
-            ws.cell(row=current_row, column=5, value="배달비 증빙 자료 첨부").alignment = align_left
-            apply_border_to_range(f'A{current_row}:I{current_row}') 
-            
-            ws.row_dimensions[current_row].height = 21
-            current_row += 1
 
-    # 나머지 빈 행 채우기 (높이 21 통일 적용)
     while current_row <= 27:
         ws.merge_cells(start_row=current_row, start_column=5, end_row=current_row, end_column=9)
         apply_border_to_range(f'A{current_row}:I{current_row}')
         ws.row_dimensions[current_row].height = 21
         current_row += 1
 
-    # 합계 행 
     ws.merge_cells(f'A{current_row}:C{current_row}')
     ws.cell(row=current_row, column=1, value="합        계").alignment = align_center
     ws.cell(row=current_row, column=1).font = font_bold
@@ -474,25 +438,21 @@ def generate_excel_form(expense_items, user_name):
     for c in range(1, 10):
         ws.cell(row=current_row, column=c).border = border_top_thin_bottom_double
 
-    # 합계 밑 빈 줄 여백 추가
     current_row += 1 
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.row_dimensions[current_row].height = 20
 
-    # 하단 문구
     current_row += 1 
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value="상기 금액을 청구합니다.").alignment = align_center
     ws.row_dimensions[current_row].height = 15
     
-    # 날짜 기입 
     current_row += 1 
     today_str = datetime.now().strftime("%Y년 %m월 %d일")
     ws.merge_cells(f'A{current_row}:I{current_row}')
     ws.cell(row=current_row, column=1, value=today_str).alignment = align_center
     ws.row_dimensions[current_row].height = 15
     
-    # 우측 하단 로고 전용석
     current_row += 1 
     ws.row_dimensions[current_row].height = 40
     ws.merge_cells(f'G{current_row}:I{current_row}') 
@@ -517,7 +477,6 @@ def generate_excel_form(expense_items, user_name):
         except Exception as e:
             pass
 
-    # 전체 외곽선(테두리) 굵은 검정색으로 칠하기
     thick_border = Side(style='medium', color='000000')
     for r in range(1, current_row + 1):
         for c in range(1, 10):
@@ -544,11 +503,10 @@ def generate_excel_form(expense_items, user_name):
 # ==========================================
 def generate_receipts_word(expense_items):
     receipt_imgs = []
+    # [핵심 수정] 배달비 이미지 첨부 로직 삭제
     for item in expense_items:
         if item.get('image_display'):
             receipt_imgs.append(item['image_display'])
-        if item.get('배달비_이미지_display'):
-            receipt_imgs.append(item['배달비_이미지_display'])
 
     if not receipt_imgs:
         return None
@@ -577,13 +535,11 @@ def generate_receipts_word(expense_items):
         for i in range(6):
             r_idx = i // 2 
             c_idx = i % 2  
-            
             table.rows[r_idx].height = Cm(9.0)
 
             if i < len(chunk):
                 img = chunk[i]
                 img_stream = io.BytesIO()
-
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
 
@@ -597,7 +553,6 @@ def generate_receipts_word(expense_items):
                 
                 img_w, img_h = img.size
                 ratio = img_w / img_h
-                
                 target_w_cm, target_h_cm = 9.0, 8.6
                 
                 if ratio > (target_w_cm / target_h_cm): 
@@ -726,7 +681,6 @@ if uploaded_files and st.button("파일 자동 입력 시작", type="primary", u
             "인식금액": safe_int(res.get("합계 금액")), 
             "비고": "", 
             "image_display": img, 
-            "배달비_이미지_display": None, 
             "is_uncertain": res.get("is_uncertain", False)
         })
         
@@ -798,6 +752,7 @@ if st.session_state.expense_items:
             item['인식금액'] = r1[3].number_input("금액", step=100, key=amt_key, label_visibility="collapsed", disabled=st.session_state.submitted)
             
             input_cost = item['인식금액']
+            # [핵심 수정] 15,000원 초과 조건 유지, 배달비 로직 삭제
             is_high_cost_meal = (item['종류'] == "야근식대" and input_cost > 15000)
             
             effective_cost = input_cost
@@ -826,9 +781,8 @@ if st.session_state.expense_items:
             r1[4].markdown(status_html, unsafe_allow_html=True)
             
             if is_high_cost_meal:
-                r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>하단 증빙 필요 ↓</span></div>", unsafe_allow_html=True)
+                r1[5].markdown(f"{base_html}<span style='color:#ef4444; font-size:12px; font-weight:600;'>동석자 입력 필수 ↓</span></div>", unsafe_allow_html=True)
             else:
-                item['배달비_이미지_display'] = None
                 item['비고'] = r1[5].text_input("자유비고", value=item.get('비고', ''), placeholder="비고(선택)", key=f"note_free_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
             with r1[6]:
@@ -838,30 +792,10 @@ if st.session_state.expense_items:
                 st.session_state.expense_items = [x for x in st.session_state.expense_items if x['id'] != uid]
                 st.rerun()
 
+            # [핵심 수정] 배달비 파일 첨부 삭제 및 동석자 필수 입력 UI로 변경
             if is_high_cost_meal:
                 st.markdown("<hr style='margin: 0.2rem 0 0.4rem 0; border-top: 1px solid rgba(79, 70, 229, 0.2);'>", unsafe_allow_html=True)
-                
-                c_sub1, c_sub2 = st.columns([1, 1], vertical_alignment="center")
-                
-                with c_sub1:
-                    item['비고'] = st.text_input("동석자 및 비고", value=item.get('비고', ''), placeholder="동석자 정보 (예: 홍길동, 김철수) 또는 비고 입력", key=f"note_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                
-                with c_sub2:
-                    d1, d2 = st.columns([4, 1], vertical_alignment="center")
-                    
-                    del_file = d1.file_uploader("배달비 영수증 첨부", type=["png", "jpg", "jpeg"], key=f"del_file_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
-                    
-                    if del_file:
-                        del_img = Image.open(del_file)
-                        del_img.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
-                        item['배달비_이미지_display'] = del_img
-                    else:
-                        item['배달비_이미지_display'] = None
-                        
-                    with d2:
-                        if item.get('배달비_이미지_display'):
-                            with st.popover("🧾"): 
-                                st.image(item['배달비_이미지_display'], width=400)
+                item['비고'] = st.text_input("동석자 필수 입력", value=item.get('비고', ''), placeholder="15,000원 초과 시 동석자 필수 입력 (예: 홍길동, 김철수)", key=f"note_{uid}", label_visibility="collapsed", disabled=st.session_state.submitted)
 
     st.write("")
     
@@ -882,9 +816,19 @@ if st.session_state.expense_items:
     with col_submit:
         if not st.session_state.submitted:
             if st.button("최종 제출하기", type="primary", use_container_width=True):
-                if not user_name: st.error("제출자 이름을 확인해주세요.", icon="🚨")
+                # [핵심 수정] 최종 제출 시 동석자 필수 검증 로직 추가
+                missing_companions = False
+                for item in final_sorted_items:
+                    if item['종류'] == "야근식대" and item['_effective_cost'] > 15000 and not str(item.get('비고', '')).strip():
+                        missing_companions = True
+                        break
+
+                if not user_name: 
+                    st.error("제출자 이름을 확인해주세요.", icon="🚨")
                 elif project_type == "기간 선택" and max_project_cost == 0:
                     st.error("달력에서 프로젝트 종료일을 확인해주세요.", icon="🚨")
+                elif missing_companions:
+                    st.error("15,000원을 초과하는 야근식대 내역에 동석자가 입력되지 않았습니다. 비고란에 동석자를 입력해주세요.", icon="🚨")
                 else:
                     with st.spinner("서버에 데이터를 등록하고 있습니다..."):
                         if save_to_s3(user_name, team_name, day_status, final_sorted_items):
