@@ -4,7 +4,6 @@ import boto3
 import json
 import urllib.parse
 from datetime import datetime
-import requests
 import io
 import os
 
@@ -181,7 +180,7 @@ def get_all_s3_data(year_month_path):
         return pd.DataFrame()
 
 def get_presigned_url(full_url):
-    if not full_url or str(full_url).strip() in ["", "N/A", "nan"]: 
+    if not full_url or str(full_url).strip() in ["", "N/A", "nan"]:
         return None
     try:
         pure_url = urllib.parse.unquote(full_url)
@@ -194,6 +193,20 @@ def get_presigned_url(full_url):
                 ExpiresIn=600
             )
     except: pass
+    return None
+
+def get_image_bytes(full_url):
+    if not full_url or str(full_url).strip() in ["", "N/A", "nan"]:
+        return None
+    try:
+        pure_url = urllib.parse.unquote(full_url)
+        key_start = pure_url.find("images/")
+        if key_start != -1:
+            s3_key = pure_url[key_start:]
+            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+            return response['Body'].read()
+    except:
+        pass
     return None
 
 # ==========================================
@@ -790,17 +803,11 @@ if not raw_df.empty:
             
             with r[5]:
                 btn_cols = st.columns(2)
-                main_url = get_presigned_url(row.get('증빙URL'))
-                if main_url:
+                main_bytes = get_image_bytes(row.get('증빙URL'))
+                if main_bytes:
                     with btn_cols[0]:
                         with st.popover("🧾"):
-                            st.image(main_url, width=400)
-                            
-                del_url = get_presigned_url(row.get('배달비_증빙URL'))
-                if del_url:
-                    with btn_cols[1]:
-                        with st.popover("🧾"):
-                            st.image(del_url, width=400)
+                            st.image(main_bytes, width=400)
 
     # --- 3. 관리자 전용 개인 문서 일괄 다운로드 ---
     st.markdown("<hr style='margin: 2rem 0; border-top: 1px solid rgba(148, 163, 184, 0.2);'>", unsafe_allow_html=True)
@@ -817,18 +824,10 @@ if not raw_df.empty:
                 main_img = None
                 del_img = None
 
-                m_url = get_presigned_url(row.get('증빙URL'))
-                if m_url:
+                m_bytes = get_image_bytes(row.get('증빙URL'))
+                if m_bytes:
                     try:
-                        res = requests.get(m_url, timeout=10)
-                        if res.status_code == 200: main_img = Image.open(io.BytesIO(res.content))
-                    except: pass
-
-                d_url = get_presigned_url(row.get('배달비_증빙URL'))
-                if d_url:
-                    try:
-                        res = requests.get(d_url, timeout=10)
-                        if res.status_code == 200: del_img = Image.open(io.BytesIO(res.content))
+                        main_img = Image.open(io.BytesIO(m_bytes))
                     except: pass
 
                 expense_items.append({
